@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Análise OTIF</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <style>
+        /* Estilos adicionais para uma melhor aparência */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .container {
+            max-width: 1280px;
+        }
+        #modal-content {
+             transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-300">
+
+    <!-- Overlay de Carregamento -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-slate-800 p-6 rounded-lg shadow-xl flex items-center">
+            <svg class="animate-spin h-5 w-5 mr-3 text-blue-500" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span id="loading-message" class="text-slate-200 font-semibold">A processar...</span>
+        </div>
+    </div>
+
+    <!-- Cabeçalho -->
+    <header class="bg-slate-800 border-b border-slate-700 sticky top-0 z-10">
+        <div class="container mx-auto flex items-center justify-between p-4">
+            <h1 class="text-2xl font-bold text-slate-50">Análise OTIF</h1>
+            <nav>
+                <button id="nav-dashboard" class="py-2 px-4 font-semibold rounded-md transition-colors bg-blue-500 text-white">
+                    Dashboard
+                </button>
+                <button id="nav-import" class="ml-4 py-2 px-4 font-semibold rounded-md transition-colors text-slate-300 hover:bg-slate-700">
+                    Importar Ficheiro
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Conteúdo Principal -->
+    <main class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <!-- Vista de Importação -->
+        <div id="import-view" style="display: none;">
+            <div class="flex flex-col items-center justify-center p-4 gap-8">
+                <div id="drop-zone" class="w-full max-w-2xl p-8 text-center bg-slate-800 rounded-lg border-2 border-dashed border-slate-600 transition-colors">
+                    <svg class="mx-auto h-12 w-12 text-slate-500" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                    <h2 class="mt-4 text-2xl font-bold text-slate-50">Importar Novo Ficheiro</h2>
+                    <p class="mt-2 text-sm text-slate-400">Arraste e solte um ficheiro .csv ou .xlsx aqui.</p>
+                    <div class="mt-6">
+                        <input type="file" id="file-upload" class="hidden" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel">
+                        <label for="file-upload" class="cursor-pointer bg-blue-500 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600 transition-colors">
+                            Ou Selecione um Ficheiro
+                        </label>
+                    </div>
+                     <p id="import-error" class="mt-4 text-sm text-red-600"></p>
+                </div>
+                <div id="history-section" class="w-full max-w-2xl p-8 bg-slate-800 rounded-lg border border-slate-700">
+                    <h3 class="text-xl font-bold text-slate-50 mb-4">Ficheiros Carregados</h3>
+                    <ul id="loaded-files-list" class="space-y-3">
+                        <!-- A lista de ficheiros será inserida aqui -->
+                    </ul>
+                     <div class="mt-6 border-t border-slate-700 pt-6">
+                         <button id="clear-history-btn" class="w-full font-bold py-2 px-4 rounded-md transition-colors bg-red-500 text-white hover:bg-red-600 disabled:bg-red-300 disabled:cursor-not-allowed">
+                             Limpar Todo o Histórico
+                         </button>
+                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Vista do Dashboard -->
+        <div id="dashboard-view">
+            <!-- O conteúdo do dashboard será inserido aqui -->
+        </div>
+    </main>
+
+    <!-- Modal de Confirmação -->
+    <div id="confirmation-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" style="display: none;">
+        <div class="bg-slate-800 p-6 sm:p-8 rounded-lg shadow-xl w-11/12 max-w-md transform transition-all scale-95 opacity-0 border border-slate-700" id="modal-content">
+            <h2 id="modal-title" class="text-xl font-bold text-slate-50 mb-4">Confirmar Ação</h2>
+            <p id="modal-message" class="text-slate-300 mb-6">Você tem certeza?</p>
+            <div class="flex justify-end gap-4">
+                <button id="modal-cancel-btn" class="py-2 px-4 font-semibold rounded-md transition-colors text-slate-300 bg-slate-700 hover:bg-slate-600">Cancelar</button>
+                <button id="modal-confirm-btn" class="py-2 px-4 font-semibold rounded-md transition-colors bg-red-500 text-white hover:bg-red-600">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Botão Voltar ao Topo -->
+    <button id="back-to-top" class="hidden fixed bottom-6 right-6 bg-blue-500 text-white p-3 rounded-full shadow-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-opacity">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+        </svg>
+    </button>
+
+
+    <script type="module">
+        // --- CONFIGURAÇÃO ---
+        // Database constants (not used in presentation mode)
+        // const DB_NAME = 'otif-dashboard-db';
+        // const DB_VERSION = 1;
+        // const FILE_STORE = 'files';
+        // const DATA_STORE = 'data';
+
+        const OTIF_TARGET = 96;
+        const ONTIME_TARGET = 96;
+        const INFULL_TARGET = 99;
+
+        // --- ESTADO DA APLICAÇÃO ---
+        let allData = [];
+        let loadedFiles = [];
+        let currentView = 'dashboard';
+        let appliedDateRange = { start: '', end: '' };
+        let selectedCarrierFromFilter = null;
+        let selectedRegion = null;
+        let selectedState = null;
+        let selectedCarrier = null;
+        let selectedReason = null;
+        let selectedDelayRange = null;
+        let selectedDelayRegion = null;
+        let selectedDelayUF = null;
+        let isPendingDelayedDrilldownActive = false;
+        let isMapDrilldownActive = false;
+        // let isDbAvailable = true;
+        // let dbPromise;
+
+        // --- MAPEAMENTO DE COLUNAS (para robustez) ---
+        const KEY_MAPPINGS = {
+            invoiceNumber: ['Numero NF', 'numero nf', 'NUMERO NF'],
+            pedidoDate: ['Data Pedido', 'data pedido', 'DATA PEDIDO', 'Data do Pedido'],
+            expeditionDate: ['Data expedição', 'data expedição', 'DATA EXPEDIÇÃO'],
+            deliveryDate: ['Data de entrega', 'data de entrega', 'DATA DE ENTREGA'],
+            status: ['Status Entrega', 'status entrega', 'STATUS ENTREGA'],
+            divergent: ['Entrega divergente?', 'entrega divergente?', 'ENTREGA DIVERGENTE?', 'Divergência de Entrega'],
+            carrier: ['TRANSPORTADORA', 'transportadora', 'Transportadora'],
+            region: ['Região', 'região', 'REGIÃO'],
+            uf: ['UF', 'uf'],
+            delayReason: ['Motivos', 'motivos', 'MOTIVOS', 'Motivo Atraso'],
+            discrepancyReason: ['Divergência', 'divergência', 'DIVERGÊNCIA', 'Motivo Divergência'],
+            delayDays: ['DIAS ATRASOS ÚTEIS', 'dias atrasos úteis', 'Dias Atrasos Úteis', 'Dias de Atraso (Úteis)']
+        };
+
+        const getRowValue = (row, key) => {
+            if (!row) return undefined;
+            const keysToTry = KEY_MAPPINGS[key];
+            if (!keysToTry) return undefined;
+            for (const k of keysToTry) {
+                if (row[k] !== undefined) {
+                    return row[k];
+                }
+            }
+            return undefined;
+        };
+
+        const stateMappings = {
+            'AC': { region: 'Norte', code: 'BR-AC' }, 'AL': { region: 'Nordeste', code: 'BR-AL' },
+            'AP': { region: 'Norte', code: 'BR-AP' }, 'AM': { region: 'Norte', code: 'BR-AM' },
+            'BA': { region: 'Nordeste', code: 'BR-BA' }, 'CE': { region: 'Nordeste', code: 'BR-CE' },
+            'DF': { region: 'Centro-Oeste', code: 'BR-DF' }, 'ES': { region: 'Sudeste', code: 'BR-ES' },
+            'GO': { region: 'Centro-Oeste', code: 'BR-GO' }, 'MA': { region: 'Nordeste', code: 'BR-MA' },
+            'MT': { region: 'Centro-Oeste', code: 'BR-MT' }, 'MS': { region: 'Centro-Oeste', code: 'BR-MS' },
+            'MG': { region: 'Sudeste', code: 'BR-MG' }, 'PA': { region: 'Norte', code: 'BR-PA' },
+            'PB': { region: 'Nordeste', code: 'BR-PB' }, 'PR': { region: 'Sul', code: 'BR-PR' },
+            'PE': { region: 'Nordeste', code: 'BR-PE' }, 'PI': { region: 'Nordeste', code: 'BR-PI' },
+            'RJ': { region: 'Sudeste', code: 'BR-RJ' }, 'RN': { region: 'Nordeste', code: 'BR-RN' },
+            'RS': { region: 'Sul', code: 'BR-RS' }, 'RO': { region: 'Norte', code: 'BR-RO' },
+            'RR': { region: 'Norte', code: 'BR-RR' }, 'SC': { region: 'Sul', code: 'BR-SC' },
+            'SP': { region: 'Sudeste', code: 'BR-SP' }, 'SE': { region: 'Nordeste', code: 'BR-SE' },
+            'TO': { region: 'Norte', code: 'BR-TO' }
+        };
+
+        const regionInfo = {
+            'Sul':        { colorIndex: 1, position: { top: '82%', left: '48%' } },
+            'Sudeste':    { colorIndex: 2, position: { top: '70%', left: '60%' } },
+            'Centro-Oeste': { colorIndex: 3, position: { top: '55%', left: '45%' } },
+            'Nordeste':   { colorIndex: 4, position: { top: '40%', left: '70%' } },
+            'Norte':      { colorIndex: 5, position: { top: '25%', left: '30%' } }
+        };
+
+        // --- ELEMENTOS DO DOM ---
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingMessage = document.getElementById('loading-message');
+        const navDashboard = document.getElementById('nav-dashboard');
+        const navImport = document.getElementById('nav-import');
+        const importView = document.getElementById('import-view');
+        const dashboardView = document.getElementById('dashboard-view');
+        const dropZone = document.getElementById('drop-zone');
+        const fileUpload = document.getElementById('file-upload');
+        const importError = document.getElementById('import-error');
+        const loadedFilesList = document.getElementById('loaded-files-list');
+        const clearHistoryBtn = document.getElementById('clear-history-btn');
+        const historySection = document.getElementById('history-section');
+        const confirmationModal = document.getElementById('confirmation-modal');
+        const modalContent = document.getElementById('modal-content');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalCancelBtn = document.getElementById('modal-cancel-btn');
+        const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+        const backToTopBtn = document.getElementById('back-to-top');
+
+        let confirmAction = null;
+
+        // Carrega a biblioteca de gráficos do Google
+        google.charts.load('current', { 'packages':['geochart'] });
+
+        // --- BASE DE DADOS INDEXEDDB ---
+        // Database initialization (not used in presentation mode)
+        /*
+        const initDb = () => {
+             try {
+                 dbPromise = new Promise((resolve, reject) => {
+                     const request = indexedDB.open(DB_NAME, DB_VERSION);
+                     request.onerror = (event) => {
+                         console.error("Erro ao abrir IndexedDB:", event.target.error);
+                         reject(event.target.error);
+                     };
+                     request.onsuccess = () => resolve(request.result);
+                     request.onupgradeneeded = event => {
+                         const db = event.target.result;
+                         if (!db.objectStoreNames.contains(FILE_STORE)) {
+                             db.createObjectStore(FILE_STORE, { keyPath: 'name' });
+                         }
+                         if (!db.objectStoreNames.contains(DATA_STORE)) {
+                             const dataStore = db.createObjectStore(DATA_STORE, { autoIncrement: true });
+                             dataStore.createIndex('fileName', 'fileName', { unique: false });
+                         }
+                     };
+                 });
+                 return dbPromise;
+             } catch (e) {
+                 console.error("IndexedDB não é suportado ou está bloqueado:", e);
+                 return Promise.reject(e);
+             }
+        };
+        */
+        
+        // --- FUNÇÕES DE CONTROLO ---
+        const showLoading = (message = 'A processar...') => {
+            loadingMessage.textContent = message;
+            loadingOverlay.style.display = 'flex';
+        };
+
+        const hideLoading = () => {
+            loadingOverlay.style.display = 'none';
+        };
+
+        const showModal = (title, message, onConfirm) => {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            confirmAction = onConfirm;
+            confirmationModal.style.display = 'flex';
+            setTimeout(() => {
+                modalContent.classList.remove('scale-95', 'opacity-0');
+                modalContent.classList.add('scale-100', 'opacity-100');
+            }, 10);
+        };
+
+        const hideModal = () => {
+            modalContent.classList.add('scale-95', 'opacity-0');
+            modalContent.classList.remove('scale-100', 'opacity-100');
+            setTimeout(() => {
+                confirmationModal.style.display = 'none';
+                confirmAction = null;
+            }, 200);
+        };
+        
+        const switchView = (view) => {
+            currentView = view;
+            if (view === 'dashboard') {
+                dashboardView.style.display = 'block';
+                importView.style.display = 'none';
+                navDashboard.classList.add('bg-blue-500', 'text-white');
+                navDashboard.classList.remove('text-slate-300', 'hover:bg-slate-700');
+                navImport.classList.remove('bg-blue-500', 'text-white');
+                navImport.classList.add('text-slate-300', 'hover:bg-slate-700');
+            } else {
+                dashboardView.style.display = 'none';
+                importView.style.display = 'block';
+                navImport.classList.add('bg-blue-500', 'text-white');
+                navImport.classList.remove('text-slate-300', 'hover:bg-slate-700');
+                navDashboard.classList.remove('bg-blue-500', 'text-white');
+                navDashboard.classList.add('text-slate-300', 'hover:bg-slate-700');
+            }
+        };
+
+        const navigateToState = (newState) => {
+            isPendingDelayedDrilldownActive = false;
+            isMapDrilldownActive = false;
+            selectedRegion = newState.region;
+            selectedState = newState.state;
+            selectedCarrier = newState.carrier;
+            selectedReason = newState.reason;
+            selectedDelayRange = newState.delayRange;
+            selectedDelayRegion = newState.delayRegion;
+            selectedDelayUF = newState.delayUF;
+            renderDashboard();
+        }
+
+        // --- FUNÇÕES DE RENDERIZAÇÃO ---
+        const getOtifColorClass = (value) => {
+            if (value >= 96) return 'bg-green-500';
+            if (value > 90) return 'bg-yellow-500';
+            return 'bg-red-500';
+        };
+
+        const getInFullColorClass = (value) => {
+            if (value >= 99) return 'bg-green-500';
+            if (value >= 90) return 'bg-yellow-500';
+            return 'bg-red-500';
+        };
+
+        const getOtifTextColorClass = (value) => {
+            if (value > 90 && value < 99) return 'text-black';
+            return 'text-white';
+        };
+
+        const renderLoadedFiles = () => {
+            clearHistoryBtn.disabled = loadedFiles.length === 0;
+            if (loadedFiles.length === 0) {
+                loadedFilesList.innerHTML = `<p class="text-slate-400">Nenhum ficheiro foi carregado ainda.</p>`;
+                return;
+            }
+            loadedFilesList.innerHTML = loadedFiles
+                .sort((a, b) => new Date(b.uploadDate) - new Date(a.uploadDate))
+                .map(file => {
+                    const rowCount = allData.filter(row => row.fileName === file.name).length;
+                    const uploadDate = new Date(file.uploadDate);
+                    const formattedDate = !isNaN(uploadDate) ? uploadDate.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Data inválida';
+
+                    return `
+                    <li class="flex justify-between items-center bg-slate-700 p-3 rounded-md hover:bg-slate-600 transition-colors">
+                        <div>
+                             <p class="text-slate-100 font-semibold truncate pr-4">${file.name}</p>
+                             <p class="text-xs text-slate-400">${rowCount.toLocaleString('pt-BR')} linhas - Carregado em ${formattedDate}</p>
+                        </div>
+                        <button data-filename="${file.name}" class="remove-file-btn text-red-500 hover:text-red-700 font-semibold flex-shrink-0">Remover</button>
+                    </li>
+                    `;
+                }).join('');
+        };
+        
+        const renderDashboard = () => {
+             if (allData.length === 0) {
+                 dashboardView.innerHTML = `
+                     <div class="text-center bg-slate-800 p-8 rounded-lg border border-slate-700">
+                         <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-16 w-16 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                         <h2 class="mt-4 text-2xl font-bold text-slate-50 mb-4">Bem-vindo ao Dashboard OTIF</h2>
+                         <p class="text-slate-300 mb-6">Nenhum dado foi carregado. Por favor, vá à aba "Importar Ficheiro" para começar.</p>
+                         <button id="go-to-import-btn" class="bg-blue-500 text-white font-bold py-2 px-6 rounded-md hover:bg-blue-600 transition-colors">
+                             Importar Ficheiro
+                         </button>
+                     </div>
+                 `;
+                 return;
+             }
+            
+            let viewHtml = '';
+
+            if (isMapDrilldownActive) {
+                viewHtml = renderRegionHistoryView(selectedRegion);
+            } else if (isPendingDelayedDrilldownActive) {
+                viewHtml = renderPendingDelayedDrilldownView();
+            } else if (selectedState) {
+                 viewHtml = renderStateDetailView(selectedRegion, selectedState);
+            } else if (selectedRegion) {
+                 viewHtml = renderRegionDetailView(selectedRegion);
+            } else if (selectedCarrier) {
+                 viewHtml = renderCarrierDetailView(selectedCarrier);
+            } else if (selectedReason) {
+                 viewHtml = renderReasonDetailView(selectedReason);
+            } else if (selectedDelayUF) {
+                 viewHtml = renderDelayByCarrierInUFView(selectedDelayRange, selectedDelayRegion, selectedDelayUF);
+            } else if (selectedDelayRegion) {
+                 viewHtml = renderDelayByUFView(selectedDelayRange, selectedDelayRegion);
+            } else if (selectedDelayRange) {
+                 viewHtml = renderDelayByRegionView(selectedDelayRange);
+            } else {
+                 viewHtml = renderMainDashboardView();
+            }
+
+            dashboardView.innerHTML = `
+                <div class="space-y-6">
+                    ${renderBreadcrumbs()}
+                    <div id="dashboard-messages"></div> <!-- Container for messages -->
+                    ${renderDateFilter()}
+                    ${viewHtml}
+                </div>
+            `;
+
+            // Draw charts after HTML is rendered
+            if (!isMapDrilldownActive && !isPendingDelayedDrilldownActive && !selectedState && !selectedRegion && !selectedCarrier && !selectedReason && !selectedDelayRange) {
+                // Use a timeout to ensure the DOM is ready for the chart
+                setTimeout(() => {
+                    const metrics = calculateMetrics();
+                    if (metrics && metrics.mapData.length > 1) { // Check if there is data to draw
+                        drawMapChart(metrics.mapData);
+                    }
+                }, 0);
+            }
+        };
+
+        const renderMainDashboardView = () => {
+            const metrics = calculateMetrics();
+
+            if (!metrics || metrics.totalDeliveries === 0) {
+                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700 text-center">
+                             <h3 class="text-lg font-semibold mb-4 text-slate-200">Nenhum dado encontrado</h3>
+                             <p class="text-slate-400">Não há registos que correspondam aos filtros aplicados.</p>
+                         </div>`;
+             }
+
+            return `
+                ${renderDashboardHeader(metrics)}
+                ${renderDeliveryStatusCards(metrics)}
+                ${renderMapChart(metrics)}
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+                    ${renderSingleMetricChart(metrics.monthlyPerformance, 'Performance Mensal - OTIF', 'otifRate', 'otifCount', metrics.yearForHistory, OTIF_TARGET)}
+                    ${renderSingleMetricChart(metrics.monthlyPerformance, 'Performance Mensal - On Time', 'onTimeRate', 'onTimeCount', metrics.yearForHistory, ONTIME_TARGET)}
+                    ${renderSingleMetricChart(metrics.monthlyPerformance, 'Performance Mensal - In Full', 'inFullRate', 'inFullCount', metrics.yearForHistory, INFULL_TARGET)}
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    ${renderStatCard('OTIF Geral', `${metrics.otifRate.toFixed(1)}%`, 'bg-blue-500/20 text-blue-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>')}
+                    ${renderStatCard('On-Time (No Prazo)', `${metrics.onTimeRate.toFixed(1)}%`, 'bg-green-500/20 text-green-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>')}
+                    ${renderStatCard('In-Full (Sem Divergência)', `${metrics.inFullRate.toFixed(1)}%`, 'bg-indigo-500/20 text-indigo-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>')}
+                    ${renderStatCard('Total de Linhas', metrics.totalDeliveries.toLocaleString('pt-BR'), 'bg-slate-500/20 text-slate-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H5a2 2 0 00-2 2v2m14 0h-2" /></svg>')}
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    ${renderBarChart('carrier-performance', metrics.carrierPerformance, 'Performance OTIF por Transportadora', true)}
+                    ${renderBarChart('region-performance', metrics.regionPerformance, 'Performance OTIF por Região', true)}
+                </div>
+                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    ${renderReasonTable('delay-reasons', metrics.topDelayReasons, 'Principais Motivos de Atraso', metrics.totalForDelayReasons, 'delay')}
+                    ${renderReasonTable('discrepancy-reasons', metrics.topDiscrepancyReasons, 'Principais Motivos de Divergência', metrics.totalDiscrepancy, 'discrepancy')}
+                </div>
+                 <div class="grid grid-cols-1 gap-6">
+                    ${renderCountBarChart('delay-distribution', metrics.delayDistributionData, 'Distribuição de Atrasos (Dias Úteis)', true)}
+                </div>
+            `;
+        }
+
+        const renderDashboardHeader = (metrics) => `
+            <div class="flex flex-wrap justify-between items-start gap-4 p-6 bg-slate-800 rounded-lg border border-slate-700">
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-50">Resumo da Performance</h2>
+                    <p class="text-slate-300">Analisando ${metrics.totalDeliveries.toLocaleString('pt-BR')} linhas de ${loadedFiles.length} ficheiro(s).</p>
+                </div>
+            </div>`;
+            
+        const renderDateFilter = () => {
+             const carriers = [...new Set(allData.map(row => getRowValue(row, 'carrier')).filter(Boolean))].sort();
+            return `
+             <div class="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-wrap items-center gap-4">
+                 <span class="font-semibold text-slate-200">Filtrar por:</span>
+                 <div>
+                     <label for="start-date" class="text-sm text-slate-300 mr-2">Data do Pedido (De):</label>
+                     <input type="date" name="start" id="start-date" value="${appliedDateRange.start}" class="bg-slate-700 border-slate-600 rounded-md shadow-sm p-2 text-slate-300">
+                 </div>
+                 <div>
+                    <label for="end-date" class="text-sm text-slate-300 mr-2">Até:</label>
+                    <input type="date" name="end" id="end-date" value="${appliedDateRange.end}" class="bg-slate-700 border-slate-600 rounded-md shadow-sm p-2 text-slate-300">
+                 </div>
+                 <div>
+                    <label for="carrier-filter" class="text-sm text-slate-300 mr-2">Transportadora:</label>
+                    <select id="carrier-filter" class="bg-slate-700 border-slate-600 rounded-md shadow-sm p-2 text-slate-300">
+                        <option value="">Todas</option>
+                        ${carriers.map(c => `<option value="${c}" ${selectedCarrierFromFilter === c ? 'selected' : ''}>${c}</option>`).join('')}
+                    </select>
+                 </div>
+                 <button id="apply-filter-btn" class="bg-blue-500 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-600 transition-colors">Aplicar</button>
+                 <button id="clear-filter-btn" class="bg-slate-600 text-slate-200 font-bold py-2 px-4 rounded-md hover:bg-slate-500 transition-colors">Limpar Filtro</button>
+             </div>`;
+        }
+        
+        const renderBreadcrumbs = () => {
+            const initialState = { region: null, state: null, carrier: null, reason: null, delayRange: null, delayRegion: null, delayUF: null };
+            let crumbs = [{ label: 'Dashboard', state: initialState }];
+            
+            let terminalCrumbLabel = '';
+
+            if (isMapDrilldownActive) {
+                terminalCrumbLabel = `Histórico da Região: ${selectedRegion}`;
+            } else if (isPendingDelayedDrilldownActive) {
+                terminalCrumbLabel = 'Pendentes em Atraso';
+            } else if (selectedDelayUF) {
+                crumbs.push({ label: `Atraso: ${selectedDelayRange}`, state: { ...initialState, delayRange: selectedDelayRange } });
+                crumbs.push({ label: selectedDelayRegion, state: { ...initialState, delayRange: selectedDelayRange, delayRegion: selectedDelayRegion } });
+                terminalCrumbLabel = selectedDelayUF;
+            } else if (selectedDelayRegion) {
+                 crumbs.push({ label: `Atraso: ${selectedDelayRange}`, state: { ...initialState, delayRange: selectedDelayRange } });
+                 terminalCrumbLabel = selectedDelayRegion;
+            } else if (selectedDelayRange) {
+                 terminalCrumbLabel = `Atraso: ${selectedDelayRange}`;
+            } else if (selectedReason) {
+                terminalCrumbLabel = `Motivo: ${selectedReason.reason}`;
+            } else if (selectedCarrier) {
+                terminalCrumbLabel = `Transportadora: ${selectedCarrier}`;
+            } else if (selectedState) {
+                crumbs.push({ label: selectedRegion, state: { ...initialState, region: selectedRegion } });
+                terminalCrumbLabel = selectedState;
+            } else if (selectedRegion) {
+                terminalCrumbLabel = selectedRegion;
+            }
+
+            if(terminalCrumbLabel) crumbs.push({label: terminalCrumbLabel, state: {}});
+
+
+            return `<nav class="flex" aria-label="Breadcrumb">
+              <ol class="inline-flex items-center space-x-1 md:space-x-3">
+                ${crumbs.map((crumb, index) => {
+                    const isLast = index === crumbs.length - 1;
+                    if (isLast) {
+                        return `<li aria-current="page"><div class="flex items-center"><span class="ml-1 text-sm font-bold text-slate-200 md:ml-2">${crumb.label}</span></div></li>`;
+                    } else {
+                        return `<li class="inline-flex items-center">
+                          <a href="#" class="breadcrumb-link inline-flex items-center text-sm font-medium text-blue-400 hover:text-blue-500" data-state='${JSON.stringify(crumb.state)}'>
+                            ${index > 0 ? '<svg class="w-3 h-3 text-slate-500 mx-1" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 6 10"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 9 4-4-4-4"/></svg>' : ''}
+                            ${crumb.label}
+                          </a>
+                        </li>`;
+                    }
+                }).join('')}
+              </ol>
+            </nav>`;
+        };
+
+        const renderStatCard = (title, value, color, icon) => `
+            <div class="bg-slate-800 p-6 rounded-lg border border-slate-700 flex items-center hover:border-slate-600 transition-colors cursor-default">
+                <div class="mr-4 p-3 rounded-full ${color}">${icon}</div>
+                <div>
+                    <p class="text-sm text-slate-400">${title}</p>
+                    <p class="text-2xl font-bold text-slate-50">${value}</p>
+                </div>
+            </div>`;
+
+        const renderDeliveryStatusCards = (metrics) => {
+            const deliveredOnTimePercent = metrics.deliveredTotal > 0 ? (metrics.deliveredOnTime / metrics.deliveredTotal * 100).toFixed(1) : '0.0';
+            const deliveredDelayedPercent = metrics.deliveredTotal > 0 ? (metrics.deliveredDelayed / metrics.deliveredTotal * 100).toFixed(1) : '0.0';
+            const pendingOnTimePercent = metrics.pendingTotal > 0 ? (metrics.pendingOnTime / metrics.pendingTotal * 100).toFixed(1) : '0.0';
+            const pendingDelayedPercent = metrics.pendingTotal > 0 ? (metrics.pendingDelayed / metrics.pendingTotal * 100).toFixed(1) : '0.0';
+
+            return `
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <h3 class="text-lg font-semibold mb-4 text-slate-200">Pedidos Entregues</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center border-b border-slate-700 pb-2">
+                            <span class="font-medium text-slate-300">Total</span>
+                            <span class="font-bold text-xl text-blue-400">${metrics.deliveredTotal.toLocaleString('pt-BR')}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-300">No Prazo</span>
+                            <div>
+                                <span class="font-semibold text-green-400">${metrics.deliveredOnTime.toLocaleString('pt-BR')}</span>
+                                <span class="text-xs text-slate-400 ml-2">(${deliveredOnTimePercent}%)</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-300">Em Atraso</span>
+                            <div>
+                                <span class="font-semibold text-red-400">${metrics.deliveredDelayed.toLocaleString('pt-BR')}</span>
+                                <span class="text-xs text-slate-400 ml-2">(${deliveredDelayedPercent}%)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <h3 class="text-lg font-semibold mb-4 text-slate-200">Pedidos Pendentes</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center border-b border-slate-700 pb-2">
+                            <span class="font-medium text-slate-300">Total</span>
+                            <span class="font-bold text-xl text-yellow-400">${metrics.pendingTotal.toLocaleString('pt-BR')}</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-300">No Prazo</span>
+                            <div>
+                                <span class="font-semibold text-green-400">${metrics.pendingOnTime.toLocaleString('pt-BR')}</span>
+                                <span class="text-xs text-slate-400 ml-2">(${pendingOnTimePercent}%)</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-slate-300">Em Atraso</span>
+                            <a href="#" id="drilldown-pending-delayed" class="font-semibold text-red-400 cursor-pointer hover:underline">
+                                ${metrics.pendingDelayed.toLocaleString('pt-BR')}
+                                <span class="text-xs text-slate-400 ml-1">(${pendingDelayedPercent}%)</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        const renderPendingDelayedDrilldownView = () => {
+            const metrics = calculateMetrics();
+            const drilldownData = metrics.pendingDelayedByCarrierAndRange;
+            const delayRanges = ["1 dia", "2 a 3 dias", "4 a 5 dias", "6 dias ou mais"];
+
+            if (!drilldownData || Object.keys(drilldownData).length === 0) {
+                return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">Detalhe de Pedidos Pendentes em Atraso</h3><p class="text-slate-400">Nenhum pedido pendente em atraso encontrado para o período selecionado.</p></div>`;
+            }
+
+            const tableData = Object.entries(drilldownData).map(([carrier, ranges]) => {
+                const total = Object.values(ranges).reduce((sum, count) => sum + count, 0);
+                return { carrier, ranges, total };
+            }).sort((a, b) => b.total - a.total);
+
+            const totals = { "1 dia": 0, "2 a 3 dias": 0, "4 a 5 dias": 0, "6 dias ou mais": 0, grandTotal: 0 };
+            tableData.forEach(item => {
+                delayRanges.forEach(range => {
+                    totals[range] += item.ranges[range] || 0;
+                });
+                totals.grandTotal += item.total;
+            });
+
+            return `
+                <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <h3 class="text-lg font-semibold mb-4 text-slate-200">Detalhe de Pedidos Pendentes em Atraso por Transportadora</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-700">
+                            <thead class="bg-slate-900/50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Transportadora</th>
+                                    ${delayRanges.map(range => `<th scope="col" class="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">${range}</th>`).join('')}
+                                    <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-slate-800 divide-y divide-slate-700">
+                                ${tableData.map(item => `
+                                    <tr>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-100">${item.carrier}</td>
+                                        ${delayRanges.map(range => `<td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300 text-right">${(item.ranges[range] || 0).toLocaleString('pt-BR')}</td>`).join('')}
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-200 text-right">${item.total.toLocaleString('pt-BR')}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                            <tfoot class="bg-slate-700">
+                                <tr>
+                                    <th scope="row" class="px-6 py-3 text-left text-sm font-bold text-slate-200 uppercase">Total Geral</th>
+                                    ${delayRanges.map(range => `<td class="px-6 py-3 text-right text-sm font-bold text-slate-200">${totals[range].toLocaleString('pt-BR')}</td>`).join('')}
+                                    <td class="px-6 py-3 text-right text-sm font-bold text-slate-100">${totals.grandTotal.toLocaleString('pt-BR')}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderBarChart = (id, chartData, title, isClickable = false) => {
+             if (!chartData || chartData.length === 0) {
+                 return `<div id="${id}" class="chart-container bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">${title}</h3><p class="text-slate-400">Não há dados suficientes para exibir.</p></div>`;
+             }
+            return `
+                <div id="${id}" class="chart-container bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <h3 class="text-lg font-semibold mb-2 text-slate-200">${title}</h3>
+                    <p class="text-sm font-medium text-slate-300 mb-4 flex items-center">
+                        <span class="border-t-2 border-dashed border-red-500 w-4 inline-block mr-2"></span>
+                        Meta: ${OTIF_TARGET}%
+                    </p>
+                    <div class="space-y-4">
+                        ${chartData.map(item => `
+                            <div data-label="${item.label}" class="flex items-center group ${isClickable ? 'cursor-pointer clickable-bar' : ''}">
+                                <p class="w-2/5 text-sm text-slate-300 truncate pr-2 group-hover:text-blue-400">${item.label} <span class="text-xs text-slate-500">(${item.totalCount})</span></p>
+                                <div class="w-3/5 bg-slate-700 rounded-full h-6 relative">
+                                     <div class="absolute top-0 bottom-0 border-l-2 border-dashed border-red-500 z-10" style="left: ${OTIF_TARGET}%;"></div>
+                                    <div class="${getOtifColorClass(item.value)} h-6 rounded-full ${getOtifTextColorClass(item.value)} text-xs flex items-center justify-end pr-2 group-hover:opacity-80 transition-opacity" style="width: ${item.value}%;">
+                                        ${item.value.toFixed(1)}%
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+        };
+        
+        const renderCountBarChart = (id, chartData, title, isClickable = false) => {
+            if (!chartData || chartData.length === 0 || chartData.every(item => item.value === 0)) {
+                return `<div id="${id}" class="chart-container bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">${title}</h3><p class="text-slate-400">Não há dados de atraso para exibir.</p></div>`;
+            }
+            const totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
+            const maxValue = Math.max(...chartData.map(item => item.value));
+            const titleHtml = title ? `<h3 class="text-lg font-semibold mb-4 text-slate-200">${title}</h3>` : '';
+            return `
+                <div id="${id}" class="chart-container bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    ${titleHtml}
+                    <div class="space-y-4">
+                        ${chartData.map(item => {
+                            const percentage = totalValue > 0 ? (item.value / totalValue) * 100 : 0;
+                            return `
+                            <div data-label="${item.label}" class="flex items-center group ${isClickable ? 'cursor-pointer clickable-bar' : ''}">
+                                <p class="w-1/3 text-sm text-slate-300 truncate pr-2 group-hover:text-blue-400">${item.label}</p>
+                                <div class="w-2/3 flex items-center">
+                                    <div class="w-full bg-slate-700 rounded-full h-6">
+                                        <div class="bg-red-500 h-6 rounded-full text-white text-xs flex items-center justify-end pr-2 group-hover:opacity-80 transition-opacity" style="width: ${(maxValue > 0 ? (item.value / maxValue) * 100 : 0)}%;">
+                                            ${item.value.toLocaleString('pt-BR')}
+                                        </div>
+                                    </div>
+                                    <p class="w-16 text-right text-sm font-semibold text-slate-200 pl-3">${percentage.toFixed(1)}%</p>
+                                </div>
+                            </div>
+                            `
+                        }).join('')}
+                    </div>
+                </div>`;
+        };
+
+        const renderReasonTable = (id, tableData, title, total, type) => {
+            if (!tableData || tableData.length === 0) {
+                 return `<div id="${id}" class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">${title}</h3><p class="text-slate-400">Nenhum motivo registado.</p></div>`;
+            }
+            return `
+                <div id="${id}" class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <h3 class="text-lg font-semibold mb-4 text-slate-200">${title}</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-700">
+                            <thead class="bg-slate-900/50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Motivo</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Ocorrências</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">% do Total</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-slate-800 divide-y divide-slate-700">
+                                ${tableData.map(item => `
+                                    <tr data-reason="${item.reason}" data-type="${type}" class="reason-row cursor-pointer hover:bg-slate-700">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-200">${item.reason}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-400">${item.count.toLocaleString('pt-BR')}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-400">${total > 0 ? ((item.count / total) * 100).toFixed(1) : '0.0'}%</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+        };
+
+        const renderMapChart = (metrics) => {
+            if (!metrics.mapLabelData || metrics.mapLabelData.every(r => r.count === 0)) {
+                return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">Distribuição por Região</h3><p class="text-slate-400">Não há dados de notas fiscais por região para exibir.</p></div>`;
+            }
+        
+            return `
+                <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <h3 class="text-lg font-semibold mb-4 text-slate-200">Distribuição de Notas Fiscais por Região</h3>
+                    <div class="relative w-full mx-auto" style="max-width: 600px;">
+                        <div id="geochart-brazil" class="w-full" style="aspect-ratio: 1/1;"></div>
+                        ${metrics.mapLabelData.map(region => {
+                            if (region.count === 0) return '';
+                            return `
+                            <div class="absolute p-2 bg-black bg-opacity-60 text-white rounded-md text-xs pointer-events-none transform -translate-x-1/2 -translate-y-1/2 text-center" 
+                                 style="top: ${region.position.top}; left: ${region.position.left};">
+                                <p class="font-bold">${region.name}</p>
+                                <p>${region.count.toLocaleString('pt-BR')} NFs</p>
+                                <p>(${region.percentage})</p>
+                            </div>
+                            `
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        };
+        
+        const renderRegionDetailView = (region) => {
+            const regionData = getFilteredData().filter(row => getRowValue(row, 'region') === region);
+            const metrics = calculateMetrics(regionData);
+
+            if (metrics.totalDeliveries === 0) {
+                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700 text-center"><h3 class="text-lg font-semibold text-slate-200">Nenhum dado para a região ${region} no período selecionado.</h3></div>`;
+            }
+
+            return `
+            ${renderDashboardHeader(metrics)}
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                ${renderStatCard('OTIF na Região', `${metrics.otifRate.toFixed(1)}%`, 'bg-blue-500/20 text-blue-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>')}
+                ${renderStatCard('On-Time', `${metrics.onTimeRate.toFixed(1)}%`, 'bg-green-500/20 text-green-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>')}
+                ${renderStatCard('In-Full', `${metrics.inFullRate.toFixed(1)}%`, 'bg-indigo-500/20 text-indigo-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>')}
+                ${renderStatCard('Total de Linhas', metrics.totalDeliveries.toLocaleString('pt-BR'), 'bg-slate-500/20 text-slate-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H5a2 2 0 00-2 2v2m14 0h-2" /></svg>')}
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                ${renderBarChart('state-performance', metrics.statePerformance, `Performance por Estado em ${region}`, true)}
+                ${renderBarChart('carrier-performance-region', metrics.carrierPerformance, `Top Transportadoras em ${region}`, true)}
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                ${renderReasonTable('delay-reasons-region', metrics.topDelayReasons, `Principais Motivos de Atraso em ${region}`, metrics.totalForDelayReasons, 'delay')}
+                ${renderReasonTable('discrepancy-reasons-region', metrics.topDiscrepancyReasons, `Principais Motivos de Divergência em ${region}`, metrics.totalDiscrepancy, 'discrepancy')}
+            </div>
+            `;
+        };
+
+        const renderStateDetailView = (region, state) => {
+            const stateData = getFilteredData().filter(row => getRowValue(row, 'uf') === state);
+            const metrics = calculateMetrics(stateData);
+
+             if (metrics.totalDeliveries === 0) {
+                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700 text-center"><h3 class="text-lg font-semibold text-slate-200">Nenhum dado para o estado ${state} no período selecionado.</h3></div>`;
+            }
+
+            return `
+            ${renderDashboardHeader(metrics)}
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                ${renderStatCard('OTIF no Estado', `${metrics.otifRate.toFixed(1)}%`, 'bg-blue-500/20 text-blue-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>')}
+                ${renderStatCard('Total de Linhas', metrics.totalDeliveries.toLocaleString('pt-BR'), 'bg-slate-500/20 text-slate-400', '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2H5a2 2 0 00-2 2v2m14 0h-2" /></svg>')}
+            </div>
+            <div class="grid grid-cols-1 gap-6">
+                ${renderBarChart('carrier-in-state-performance', metrics.carrierPerformance, `Performance por Transportadora em ${state}`, true)}
+            </div>
+            `;
+        };
+
+        const renderReasonDetailView = (reasonInfo) => {
+            const data = getFilteredData();
+            const metrics = calculateMetrics(data); // Using global metrics to get carrierPerformanceByReason
+            const typeText = reasonInfo.type === 'delay' ? 'Atraso' : 'Divergência';
+            const dataForReason = metrics.carrierPerformanceByReason[reasonInfo.type][reasonInfo.reason];
+
+            if (!dataForReason) {
+                return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">Detalhes para o Motivo de ${typeText}: <span class="text-blue-400">${reasonInfo.reason}</span></h3><p class="text-slate-400">Nenhum dado de transportadora encontrado para este motivo.</p></div>`;
+            }
+
+            const totalOccurrences = Object.values(dataForReason).reduce((a, b) => a + b, 0);
+            const tableData = Object.entries(dataForReason)
+                .map(([carrier, count]) => ({ label: carrier, count }))
+                .sort((a, b) => b.count - a.count);
+
+            return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                <h3 class="text-lg font-semibold mb-4 text-slate-200">Transportadoras com Motivo de ${typeText}: <span class="text-blue-400">${reasonInfo.reason}</span></h3>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-slate-700">
+                        <thead class="bg-slate-900/50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Transportadora</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Ocorrências</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">% do Total</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-slate-800 divide-y divide-slate-700">
+                            ${tableData.map(item => `
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-100">${item.label}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">${item.count}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">${((item.count / totalOccurrences) * 100).toFixed(1)}%</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        };
+
+        const renderCarrierDetailView = (carrierName) => {
+            const metrics = calculateMetrics(allData);
+            const historicalData = metrics.historicalCarrierPerformance;
+            const year = metrics.yearForHistory;
+
+            if (!historicalData || !historicalData[carrierName]) {
+                return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">Histórico Mensal para: <span class="text-blue-400">${carrierName}</span></h3><p class="text-slate-400">Nenhum dado histórico encontrado para esta transportadora.</p></div>`;
+            }
+            
+            const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            
+            const chartData = months.map((monthName, index) => {
+                const monthKey = `${year}-${String(index + 1).padStart(2, '0')}`;
+                const monthData = historicalData[carrierName][monthKey];
+                return {
+                    label: monthName,
+                    otifRate: monthData ? monthData.otifRate : undefined,
+                    onTimeRate: monthData ? monthData.onTimeRate : undefined,
+                    inFullRate: monthData ? monthData.inFullRate : undefined,
+                    totalCount: monthData ? monthData.totalCount : 0,
+                };
+            });
+
+            const visibleData = chartData.filter(item => item.totalCount > 0);
+
+            return `
+                <h2 class="text-2xl font-bold text-slate-50 mb-4">Histórico Mensal para <span class="text-blue-400">${carrierName}</span> (${year})</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    ${renderCarrierHistoryChart(visibleData, 'OTIF', 'otifRate', OTIF_TARGET)}
+                    ${renderCarrierHistoryChart(visibleData, 'On Time', 'onTimeRate', ONTIME_TARGET)}
+                    ${renderCarrierHistoryChart(visibleData, 'In Full', 'inFullRate', INFULL_TARGET)}
+                </div>
+            `;
+        };
+
+        const renderCarrierHistoryChart = (chartData, title, metricKey, target) => {
+            const colorClassFn = metricKey === 'inFullRate' ? getInFullColorClass : getOtifColorClass;
+
+            let html = `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                <h3 class="text-lg font-semibold mb-2 text-slate-200">${title}</h3>
+                <p class="text-sm font-medium text-slate-300 mb-4 flex items-center">
+                    <span class="border-t-2 border-dashed border-red-500 w-4 inline-block mr-2"></span>
+                    Meta: ${target}%
+                </p>
+                <div class="relative flex" style="height: 300px;">
+                    <div class="relative w-10 flex-shrink-0 pr-2 text-xs text-right text-slate-400 h-full pb-5 border-r border-slate-700">
+                        <span class="absolute right-2" style="bottom: 100%; transform: translateY(50%);">100%</span>
+                        <span class="absolute right-2" style="bottom: 75%; transform: translateY(50%);">75%</span>
+                        <span class="absolute right-2" style="bottom: 50%; transform: translateY(50%);">50%</span>
+                        <span class="absolute right-2" style="bottom: 25%; transform: translateY(50%);">25%</span>
+                        <span class="absolute right-2 bottom-0">0%</span>
+                    </div>
+                    <div class="flex-1 grid pl-2 border-b border-slate-700 relative" style="grid-template-columns: repeat(${chartData.length}, minmax(0, 1fr));">`;
+            
+            html += `<div class="absolute top-0 w-full z-10" style="bottom: ${target}%;">
+                        <div class="border-t-2 border-dashed border-red-500 h-0"></div>
+                     </div>`;
+
+            chartData.forEach(item => {
+                const value = item[metricKey];
+                html += `<div class="relative flex justify-center items-end h-full px-2">`; // Added px-2 for spacing
+                if (value !== undefined) {
+                    html += `<div class="absolute text-center w-full text-xs font-bold text-slate-100" style="bottom: calc(${value}% + 4px);">${value.toFixed(1)}%</div>
+                            <div class="${colorClassFn(value)} w-full" style="height: ${value}%;"></div>`;
+                }
+                html += `</div>`;
+            });
+            
+            html += `</div></div>`; // End chart area
+            html += `<div class="flex pl-10 pt-2"><div class="grid w-full" style="grid-template-columns: repeat(${chartData.length}, minmax(0, 1fr));">${chartData.map(item => `<div class="text-center text-xs text-slate-400"><div>${item.label}</div><div class="text-slate-500">(${item.totalCount})</div></div>`).join('')}</div></div>`;
+            html += `</div>`; // End container
+            return html;
+        };
+        
+        const renderDelayByRegionView = (delayRange) => {
+            const metrics = calculateMetrics();
+            const dataForRange = metrics.delaysByRegion[delayRange];
+
+            if (!dataForRange || Object.keys(dataForRange).length === 0) {
+                return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">Atrasos de <span class="text-blue-400">${delayRange}</span></h3><p class="text-slate-400">Nenhuma ocorrência encontrada para esta faixa de atraso.</p></div>`;
+            }
+
+            const chartData = Object.entries(dataForRange)
+                .map(([region, count]) => ({ label: region, value: count }))
+                .sort((a, b) => b.value - a.value);
+
+            return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                        <h3 class="text-lg font-semibold mb-4 text-slate-200">Atrasos de <span class="text-blue-400">${delayRange}</span> por Região (Clique para detalhar)</h3>
+                        ${renderCountBarChart('delay-by-region', chartData, '', true)}
+                    </div>`;
+        };
+
+        const renderDelayByUFView = (delayRange, region) => {
+            const metrics = calculateMetrics();
+            const dataForUF = metrics.delaysByUF[delayRange]?.[region];
+
+            if (!dataForUF || Object.keys(dataForUF).length === 0) {
+                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">Atrasos de <span class="text-blue-400">${delayRange}</span> em <span class="text-blue-400">${region}</span></h3><p class="text-slate-400">Nenhum UF encontrado.</p></div>`;
+            }
+
+            const chartData = Object.entries(dataForUF)
+                .map(([uf, count]) => ({ label: uf, value: count }))
+                .sort((a, b) => b.value - a.value);
+
+            return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                        <h3 class="text-lg font-semibold mb-4 text-slate-200">Atrasos de <span class="text-blue-400">${delayRange}</span> em <span class="text-blue-400">${region}</span> por UF (Clique para detalhar)</h3>
+                        ${renderCountBarChart('delay-by-uf', chartData, '', true)}
+                    </div>`;
+        };
+
+        const renderDelayByCarrierInUFView = (delayRange, region, uf) => {
+            const metrics = calculateMetrics();
+            const dataForCarrier = metrics.delaysByCarrierInUF[delayRange]?.[uf];
+
+            if (!dataForCarrier || Object.keys(dataForCarrier).length === 0) {
+                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">Atrasos de <span class="text-blue-400">${delayRange}</span> em <span class="text-blue-400">${uf}</span></h3><p class="text-slate-400">Nenhuma transportadora encontrada.</p></div>`;
+            }
+
+            const chartData = Object.entries(dataForCarrier)
+                .map(([carrier, count]) => ({ label: carrier, value: count }))
+                .sort((a, b) => b.value - a.value);
+            
+            return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                        <h3 class="text-lg font-semibold mb-4 text-slate-200">Atrasos de <span class="text-blue-400">${delayRange}</span> em <span class="text-blue-400">${uf}</span> por Transportadora</h3>
+                        ${renderCountBarChart('delay-by-carrier', chartData, '', false)}
+                    </div>`;
+        };
+
+        const renderSingleMetricChart = (monthlyData, title, metricKey, countKey, year, target) => {
+            const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            const visibleData = monthlyData.filter(m => m.totalCount > 0);
+            const colorClassFn = metricKey === 'inFullRate' ? getInFullColorClass : getOtifColorClass;
+
+            if (!visibleData || visibleData.length === 0) {
+                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">${title} (${year})</h3><p class="text-slate-400">Nenhum dado para exibir.</p></div>`;
+            }
+
+            let html = `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                <h3 class="text-lg font-semibold mb-2 text-slate-200">${title} (${year})</h3>
+                 <p class="text-base font-medium text-slate-300 mb-4 flex items-center">
+                    <span class="border-t-2 border-dashed border-red-500 w-4 inline-block mr-2"></span>
+                    Meta: ${target}%
+                </p>
+                <div class="relative flex" style="height: 300px;">
+                    <div class="relative w-12 flex-shrink-0 pr-2 text-xs text-right text-slate-400 h-full pb-5 border-r border-slate-700">
+                         <span class="absolute right-2" style="bottom: 100%; transform: translateY(50%);">100%</span>
+                        <span class="absolute right-2" style="bottom: 75%; transform: translateY(50%);">75%</span>
+                        <span class="absolute right-2" style="bottom: 50%; transform: translateY(50%);">50%</span>
+                        <span class="absolute right-2" style="bottom: 25%; transform: translateY(50%);">25%</span>
+                        <span class="absolute right-2 bottom-0">0%</span>
+                    </div>
+                    <div class="flex-1 grid pl-3 border-b border-slate-700 relative" style="grid-template-columns: repeat(${visibleData.length}, minmax(0, 1fr)); column-gap: 16px;">
+                        <div class="absolute top-0 w-full z-10" style="bottom: ${target}%;">
+                            <div class="border-t-2 border-dashed border-red-500 h-0"></div>
+                        </div>`;
+
+            visibleData.forEach(monthData => {
+                const value = monthData[metricKey];
+                html += `<div class="relative flex justify-center items-end h-full px-1 group">`;
+                if (value !== undefined) {
+                            html += `<div class="absolute text-center w-full text-[11px] font-semibold text-slate-100" style="bottom: calc(${value}% + 8px);">${value.toFixed(1)}%</div>
+                                <div class="${colorClassFn(value)}" style="height: ${value}%; width: 90%;"></div>`;
+                }
+                html += `</div>`;
+            });
+            
+            html += `</div></div>
+                <div class="flex pl-12 pt-3">
+                    <div class="grid w-full" style="grid-template-columns: repeat(${visibleData.length}, minmax(0, 1fr)); column-gap: 16px; font-size: 10px; line-height: 1.2;">${visibleData.map(m => {
+                const count = m[countKey];
+                return `<div class="text-center text-slate-400"><div>${months[new Date(m.month + '-02').getMonth()]}</div><div class="text-slate-500">(${count.toLocaleString('pt-BR')})</div></div>`
+            }).join('')}</div>
+                </div>`;
+            html += `</div>`; // End container
+            return html;
+        };
+
+        const renderRegionHistoryView = (region) => {
+            const fullMetrics = calculateMetrics(allData); // Always use all data for this view
+            const yearForHistory = new Date().getFullYear();
+            const expeditionData = fullMetrics.monthlyInvoicesByRegion[region] || {};
+            const monthlyTotals = fullMetrics.monthlyInvoicesTotal;
+
+            if (Object.keys(expeditionData).length === 0) {
+                return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">Histórico de Pedidos para ${region}</h3><p class="text-slate-400">Nenhum dado de pedido encontrado para esta região no ano de ${yearForHistory}.</p></div>`;
+            }
+
+            const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            
+            const chartData = months.map((monthName, index) => {
+                const monthKey = `${yearForHistory}-${String(index + 1).padStart(2, '0')}`;
+                const count = expeditionData[monthKey] || 0;
+                const totalOfMonth = monthlyTotals[monthKey] || 0;
+                return {
+                    label: monthName,
+                    value: count,
+                    percentage: totalOfMonth > 0 ? (count / totalOfMonth * 100).toFixed(1) : 0
+                };
+            });
+            const maxValue = Math.max(...chartData.map(item => item.value));
+
+            return `
+                <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <h3 class="text-lg font-semibold mb-4 text-slate-200">Histórico Mensal de Pedidos para <span class="text-blue-400">${region}</span> (${yearForHistory})</h3>
+                    <p class="text-xs text-slate-400 mb-4">Os percentuais são calculados com base no total de pedidos de cada mês em todas as regiões.</p>
+                    <div class="space-y-4">
+                        ${chartData.map(item => `
+                            <div class="flex items-center group">
+                                <p class="w-1/5 text-sm text-slate-300 truncate pr-2">${item.label}</p>
+                                <div class="w-4/5 flex items-center">
+                                    <div class="w-full bg-slate-700 rounded-full h-6">
+                                        <div class="bg-blue-500 h-6 rounded-full text-white text-xs flex items-center justify-end pr-2" style="width: ${maxValue > 0 ? (item.value / maxValue) * 100 : 0}%;">
+                                            ${item.value.toLocaleString('pt-BR')}
+                                        </div>
+                                    </div>
+                                    <p class="w-20 text-right text-sm font-semibold text-slate-200 pl-3">${item.percentage}%</p>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        };
+
+        // --- LÓGICA DE DADOS ---
+        const parseDate = (rowDateStr) => {
+            if (typeof rowDateStr === 'number') { // Formato Excel
+                const excelEpoch = new Date(1899, 11, 30);
+                const result = new Date(excelEpoch.getTime() + rowDateStr * 86400000);
+                return result;
+            }
+            
+            if (String(rowDateStr).includes('/')) { 
+                const parts = String(rowDateStr).split('/');
+                if (parts.length === 3) {
+                    let day, month, year;
+                    
+                    // Detect format based on values
+                    // If first part > 12, it's likely DD/MM/YY or DD/MM/YYYY
+                    // If third part is 2 digits, it's a short year
+                    
+                    if (parts[2].length === 2) {
+                        // Short year format - could be M/D/YY or D/M/YY
+                        // Assume M/D/YY (American format common in Excel)
+                        month = parts[0].padStart(2, '0');
+                        day = parts[1].padStart(2, '0');
+                        year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+                    } else if (parts[0].length <= 2 && parts[1].length <= 2 && parts[2].length === 4) {
+                        // Could be DD/MM/YYYY or MM/DD/YYYY
+                        // Check if first number > 12 to determine
+                        if (parseInt(parts[0]) > 12) {
+                            // Must be DD/MM/YYYY
+                            day = parts[0].padStart(2, '0');
+                            month = parts[1].padStart(2, '0');
+                            year = parts[2];
+                        } else if (parseInt(parts[1]) > 12) {
+                            // Must be MM/DD/YYYY
+                            month = parts[0].padStart(2, '0');
+                            day = parts[1].padStart(2, '0');
+                            year = parts[2];
+                        } else {
+                            // Ambiguous - assume MM/DD/YYYY (American format)
+                            month = parts[0].padStart(2, '0');
+                            day = parts[1].padStart(2, '0');
+                            year = parts[2];
+                        }
+                    } else {
+                        // Default to DD/MM/YYYY
+                        day = parts[0].padStart(2, '0');
+                        month = parts[1].padStart(2, '0');
+                        year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+                    }
+                    
+                    const result = new Date(`${year}-${month}-${day}T00:00:00`);
+                    return result;
+                }
+            }
+            
+            // Formato YYYY-MM-DD ou outro que o construtor Date entenda
+            const result = new Date(rowDateStr + 'T00:00:00');
+            return result;
+        };
+        
+        const getFilteredData = () => {
+            return allData.filter(row => {
+                const rowDateStr = getRowValue(row, 'pedidoDate');
+                if (!rowDateStr) return false; 
+                
+                const rowDate = parseDate(rowDateStr);
+                if(isNaN(rowDate.getTime())) return false; 
+
+                const startDate = appliedDateRange.start ? new Date(appliedDateRange.start + 'T00:00:00') : null;
+                const endDate = appliedDateRange.end ? new Date(appliedDateRange.end + 'T23:59:59') : null;
+
+                if (startDate && rowDate < startDate) return false;
+                if (endDate && rowDate > endDate) return false;
+
+                if (selectedCarrierFromFilter && getRowValue(row, 'carrier') !== selectedCarrierFromFilter) return false;
+                
+                return true;
+            });
+        }
+
+        const calculateMetrics = (data) => {
+            try {
+                const sourceData = data || getFilteredData();
+                
+                if (!sourceData || sourceData.length === 0) {
+                    return {
+                        totalDeliveries: 0,
+                        otifRate: 0,
+                        onTimeRate: 0,
+                        inFullRate: 0,
+                        carrierPerformance: [],
+                        regionPerformance: [],
+                        statePerformance: [],
+                        topDelayReasons: [],
+                        totalForDelayReasons: 0,
+                        topDiscrepancyReasons: [],
+                        totalDiscrepancy: 0,
+                        carrierPerformanceByReason: { delay: {}, discrepancy: {} },
+                        delayDistributionData: [],
+                        delaysByRegion: {},
+                        delaysByUF: {},
+                        delaysByCarrierInUF: {},
+                        deliveredTotal: 0,
+                        deliveredOnTime: 0,
+                        deliveredDelayed: 0,
+                        pendingTotal: 0,
+                        pendingOnTime: 0,
+                        pendingDelayed: 0,
+                        pendingDelayedByCarrierAndRange: {},
+                        mapData: [['State', 'Region']],
+                        mapLabelData: [],
+                        monthlyPerformance: [],
+                        yearForHistory: new Date().getFullYear(),
+                        historicalCarrierPerformance: {},
+                        monthlyInvoicesByRegion: {},
+                        monthlyInvoicesTotal: {}
+                    };
+                }
+                
+                const otifCalculationsData = sourceData.filter(row => getRowValue(row, 'delayReason') !== 'Desistência de compra');
+
+            // --- CÁLCULOS FILTRADOS (para cards e gráficos principais) ---
+            const dataForStatusMetrics = otifCalculationsData; 
+            let deliveredTotal = 0, deliveredOnTime = 0, deliveredDelayed = 0;
+            let pendingTotal = 0, pendingOnTime = 0, pendingDelayed = 0;
+
+            dataForStatusMetrics.forEach(row => {
+                const deliveryDate = getRowValue(row, 'deliveryDate');
+                const status = getRowValue(row, 'status');
+                const isOnTime = status === 'Dentro do Prazo';
+
+                if (deliveryDate && String(deliveryDate).trim() !== '') {
+                    deliveredTotal++;
+                    if (isOnTime) deliveredOnTime++; else deliveredDelayed++;
+                } else {
+                    pendingTotal++;
+                    if (isOnTime) pendingOnTime++; else pendingDelayed++;
+                }
+            });
+
+            const pendingDelayedByCarrierAndRange = {};
+            dataForStatusMetrics.forEach(row => {
+                const deliveryDate = getRowValue(row, 'deliveryDate');
+                const status = getRowValue(row, 'status');
+                const isDelayed = status === 'Fora do Prazo';
+
+                if ((!deliveryDate || String(deliveryDate).trim() === '') && isDelayed) {
+                    const carrier = getRowValue(row, 'carrier');
+                    if (!carrier) return; 
+
+                    const diasAtraso = parseInt(getRowValue(row, 'delayDays'), 10);
+                    if (isNaN(diasAtraso) || diasAtraso < 0) return;
+
+                    let range = null;
+                    if (diasAtraso === 1) range = "1 dia";
+                    else if (diasAtraso >= 2 && diasAtraso <= 3) range = "2 a 3 dias";
+                    else if (diasAtraso >= 4 && diasAtraso <= 5) range = "4 a 5 dias";
+                    else if (diasAtraso >= 6) range = "6 dias ou mais";
+                    
+                    if (range) {
+                        if (!pendingDelayedByCarrierAndRange[carrier]) {
+                            pendingDelayedByCarrierAndRange[carrier] = { "1 dia": 0, "2 a 3 dias": 0, "4 a 5 dias": 0, "6 dias ou mais": 0 };
+                        }
+                        pendingDelayedByCarrierAndRange[carrier][range]++;
+                    }
+                }
+            });
+
+            const processedData = otifCalculationsData.map(row => {
+                const isOnTime = getRowValue(row, 'status') !== 'Fora do Prazo';
+                const divergentValue = getRowValue(row, 'divergent');
+                const isInFull = !divergentValue || String(divergentValue).trim().toLowerCase() !== 'sim';
+                return { ...row, isOnTime, isInFull };
+            });
+
+            const totalDeliveries = processedData.length;
+            const onTimeCount = processedData.filter(d => d.isOnTime).length;
+            const inFullCount = processedData.filter(d => d.isInFull).length;
+            
+            const onTimeRate = totalDeliveries > 0 ? (onTimeCount / totalDeliveries) * 100 : 0;
+            const inFullRate = totalDeliveries > 0 ? (inFullCount / totalDeliveries) * 100 : 0;
+            const otifRate = (onTimeRate / 100) * inFullRate;
+
+
+            const createPerformanceMetric = (key) => {
+                const byKey = processedData.reduce((acc, curr) => {
+                    const label = getRowValue(curr, key);
+                    if (!label) return acc;
+                    if (!acc[label]) acc[label] = { total: 0, onTime: 0, inFull: 0 };
+                    acc[label].total++;
+                    if (curr.isOnTime) acc[label].onTime++;
+                    if (curr.isInFull) acc[label].inFull++;
+                    return acc;
+                }, {});
+                return Object.entries(byKey).map(([label, values]) => {
+                    const groupOnTimeRate = (values.onTime / values.total) * 100;
+                    const groupInFullRate = (values.inFull / values.total) * 100;
+                    return {
+                        label, 
+                        value: (groupOnTimeRate / 100) * groupInFullRate,
+                        totalCount: values.total
+                    }
+                }).sort((a, b) => b.value - a.value);
+            };
+
+            const carrierPerformance = createPerformanceMetric('carrier');
+            const regionPerformance = createPerformanceMetric('region');
+            const statePerformance = createPerformanceMetric('uf');
+            
+            const createReasonMetric = (filterFn, reasonKey, dataSet) => {
+                const dataToUse = dataSet || processedData;
+                const reasons = dataToUse.filter(filterFn).reduce((acc, curr) => {
+                    const reason = getRowValue(curr, reasonKey);
+                    if(reason) acc[reason] = (acc[reason] || 0) + 1;
+                    return acc;
+                }, {});
+                return Object.entries(reasons).map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
+            }
+
+            const processedSourceData = sourceData.map(row => {
+                const isOnTime = getRowValue(row, 'status') !== 'Fora do Prazo';
+                return { ...row, isOnTime };
+            });
+
+            const topDelayReasons = createReasonMetric(
+                row => !row.isOnTime || getRowValue(row, 'delayReason') === 'Desistência de compra',
+                'delayReason',
+                processedSourceData
+            );
+            const totalForDelayReasons = topDelayReasons.reduce((sum, item) => sum + item.count, 0);
+
+            const topDiscrepancyReasons = createReasonMetric(row => !row.isInFull, 'discrepancyReason', processedData);
+            const totalDiscrepancy = processedData.filter(row => !row.isInFull).length;
+
+            const carrierPerformanceByReason = { delay: {}, discrepancy: {} };
+            processedData.forEach(row => {
+                const carrier = getRowValue(row, 'carrier');
+                if (!carrier) return;
+                if (!row.isOnTime) {
+                    const reason = getRowValue(row, 'delayReason');
+                    if (reason) {
+                        if (!carrierPerformanceByReason.delay[reason]) carrierPerformanceByReason.delay[reason] = {};
+                        carrierPerformanceByReason.delay[reason][carrier] = (carrierPerformanceByReason.delay[reason][carrier] || 0) + 1;
+                    }
+                }
+                if (!row.isInFull) {
+                    const reason = getRowValue(row, 'discrepancyReason');
+                    if (reason) {
+                        if (!carrierPerformanceByReason.discrepancy[reason]) carrierPerformanceByReason.discrepancy[reason] = {};
+                        carrierPerformanceByReason.discrepancy[reason][carrier] = (carrierPerformanceByReason.discrepancy[reason][carrier] || 0) + 1;
+                    }
+                }
+            });
+            
+            const invoicesByUF = {};
+            const uniqueInvoicesByUF = new Set();
+            otifCalculationsData.forEach(row => {
+                const uf = getRowValue(row, 'uf');
+                const invoice = getRowValue(row, 'invoiceNumber');
+                if (uf && invoice && stateMappings[uf]) {
+                    const uniqueKey = `${uf}-${invoice}`;
+                    if (!uniqueInvoicesByUF.has(uniqueKey)) {
+                        invoicesByUF[uf] = (invoicesByUF[uf] || 0) + 1;
+                        uniqueInvoicesByUF.add(uniqueKey);
+                    }
+                }
+            });
+
+            const invoicesByRegion = {};
+            for (const uf in invoicesByUF) {
+                const region = stateMappings[uf].region;
+                invoicesByRegion[region] = (invoicesByRegion[region] || 0) + invoicesByUF[uf];
+            }
+
+            const totalInvoices = Object.values(invoicesByRegion).reduce((sum, count) => sum + count, 0);
+
+            const mapLabelData = [];
+            for (const region in regionInfo) {
+                const count = invoicesByRegion[region] || 0;
+                const percentage = totalInvoices > 0 ? ((count / totalInvoices) * 100).toFixed(1) : 0;
+                mapLabelData.push({
+                    name: region,
+                    count: count,
+                    percentage: `${percentage}%`,
+                    position: regionInfo[region].position
+                });
+            }
+
+            const delayDistribution = { "1 dia": 0, "2 a 3 dias": 0, "4 a 5 dias": 0, "6 dias ou mais": 0 };
+            const delaysByRegion = {};
+            const delaysByUF = {};
+            const delaysByCarrierInUF = {};
+
+            processedData.forEach(row => {
+                if (!row.isOnTime) {
+                    const diasAtraso = parseInt(getRowValue(row, 'delayDays'), 10);
+                    if (isNaN(diasAtraso)) return;
+
+                    let range = null;
+                    if (diasAtraso === 1) range = "1 dia";
+                    else if (diasAtraso >= 2 && diasAtraso <= 3) range = "2 a 3 dias";
+                    else if (diasAtraso >= 4 && diasAtraso <= 5) range = "4 a 5 dias";
+                    else if (diasAtraso >= 6) range = "6 dias ou mais";
+                    
+                    if (range) {
+                        delayDistribution[range]++;
+                        const region = getRowValue(row, 'region');
+                        const uf = getRowValue(row, 'uf');
+                        const carrier = getRowValue(row, 'carrier');
+
+                        if (region) {
+                            if (!delaysByRegion[range]) delaysByRegion[range] = {};
+                            delaysByRegion[range][region] = (delaysByRegion[range][region] || 0) + 1;
+                        }
+                        if (region && uf) {
+                            if (!delaysByUF[range]) delaysByUF[range] = {};
+                            if (!delaysByUF[range][region]) delaysByUF[range][region] = {};
+                            delaysByUF[range][region][uf] = (delaysByUF[range][region][uf] || 0) + 1;
+                        }
+                        if (uf && carrier) {
+                            if (!delaysByCarrierInUF[range]) delaysByCarrierInUF[range] = {};
+                            if (!delaysByCarrierInUF[range][uf]) delaysByCarrierInUF[range][uf] = {};
+                            delaysByCarrierInUF[range][uf][carrier] = (delaysByCarrierInUF[range][uf][carrier] || 0) + 1;
+                        }
+                    }
+                }
+            });
+            const delayDistributionData = Object.entries(delayDistribution).map(([label, count]) => ({ label, value: count }));
+
+            // --- CÁLCULOS HISTÓRICOS (NÃO FILTRADOS - USANDO 'allData') ---
+            let historicalBaseData = allData;
+            if(selectedCarrierFromFilter && !data){ // Do not apply carrier filter when calculating for a specific carrier detail view
+                historicalBaseData = historicalBaseData.filter(row => getRowValue(row, 'carrier') === selectedCarrierFromFilter);
+            }
+            historicalBaseData = historicalBaseData.filter(row => getRowValue(row, 'delayReason') !== 'Desistência de compra');
+
+            // Find max year efficiently without spread operator
+            let yearForHistory = new Date().getFullYear();
+            for (const row of historicalBaseData) {
+                const d = parseDate(getRowValue(row, 'pedidoDate'));
+                if (d && !isNaN(d.getTime())) {
+                    const year = d.getFullYear();
+                    if (year > yearForHistory) yearForHistory = year;
+                }
+            }
+            
+            const monthlyPerformanceData = historicalBaseData.filter(row => {
+                const d = parseDate(getRowValue(row, 'pedidoDate'));
+                return d && !isNaN(d.getTime()) && d.getFullYear() === yearForHistory;
+            }).reduce((acc, curr) => {
+                const rowDate = parseDate(getRowValue(curr, 'pedidoDate'));
+                if (isNaN(rowDate.getTime())) return acc;
+                const monthKey = `${yearForHistory}-${String(rowDate.getMonth() + 1).padStart(2, '0')}`;
+                if (!acc[monthKey]) acc[monthKey] = { total: 0, onTimeCount: 0, inFullCount: 0, otifCount: 0 };
+                const isOnTime = getRowValue(curr, 'status') !== 'Fora do Prazo';
+                const divergentValue = getRowValue(curr, 'divergent');
+                const isInFull = !divergentValue || String(divergentValue).trim().toLowerCase() !== 'sim';
+                acc[monthKey].total++;
+                if(isOnTime) acc[monthKey].onTimeCount++;
+                if(isInFull) acc[monthKey].inFullCount++;
+                if(isOnTime && isInFull) acc[monthKey].otifCount++;
+                return acc;
+            }, {});
+
+            const monthlyPerformance = Array.from({ length: 12 }).map((_, index) => {
+                const monthKey = `${yearForHistory}-${String(index + 1).padStart(2, '0')}`;
+                const data = monthlyPerformanceData[monthKey];
+                if (data && data.total > 0) {
+                    const onTimeRate = (data.onTimeCount / data.total) * 100;
+                    const inFullRate = (data.inFullCount / data.total) * 100;
+                    return {
+                        month: monthKey,
+                        otifRate: (onTimeRate / 100) * inFullRate,
+                        onTimeRate: onTimeRate,
+                        inFullRate: inFullRate,
+                        totalCount: data.total,
+                        otifCount: data.otifCount,
+                        onTimeCount: data.onTimeCount,
+                        inFullCount: data.inFullCount
+                    };
+                } else {
+                    return { 
+                        month: monthKey, otifRate: undefined, onTimeRate: undefined, inFullRate: undefined, totalCount: 0,
+                        otifCount: 0, onTimeCount: 0, inFullCount: 0
+                    };
+                }
+            });
+
+            const historicalCarrierPerformance = historicalBaseData.filter(row => {
+                const d = parseDate(getRowValue(row, 'pedidoDate'));
+                return d && !isNaN(d.getTime()) && d.getFullYear() === yearForHistory;
+            }).reduce((acc, curr) => {
+                const carrier = getRowValue(curr, 'carrier');
+                const rowDate = parseDate(getRowValue(curr, 'pedidoDate'));
+                if (!carrier || isNaN(rowDate.getTime())) return acc;
+                const month = `${yearForHistory}-${String(rowDate.getMonth() + 1).padStart(2, '0')}`;
+                if (!acc[carrier]) acc[carrier] = {};
+                if (!acc[carrier][month]) acc[carrier][month] = { total: 0, onTimeCount: 0, inFullCount: 0 };
+
+                const isOnTime = getRowValue(curr, 'status') !== 'Fora do Prazo';
+                const divergentValue = getRowValue(curr, 'divergent');
+                const isInFull = !divergentValue || String(divergentValue).trim().toLowerCase() !== 'sim';
+                
+                acc[carrier][month].total++;
+                if (isOnTime) acc[carrier][month].onTimeCount++;
+                if (isInFull) acc[carrier][month].inFullCount++;
+                
+                return acc;
+            }, {});
+
+            Object.keys(historicalCarrierPerformance).forEach(carrier => {
+                Object.keys(historicalCarrierPerformance[carrier]).forEach(month => {
+                    const { total, onTimeCount, inFullCount } = historicalCarrierPerformance[carrier][month];
+                    const onTimeRate = (onTimeCount / total) * 100;
+                    const inFullRate = (inFullCount / total) * 100;
+                    historicalCarrierPerformance[carrier][month] = { 
+                        otifRate: (onTimeRate / 100) * inFullRate,
+                        onTimeRate: onTimeRate,
+                        inFullRate: inFullRate,
+                        totalCount: total 
+                    };
+                });
+            });
+
+            const monthlyInvoicesByRegion = {};
+            const monthlyInvoicesTotal = {};
+            const uniqueInvoicesByMonth = new Set();
+            const uniqueInvoicesByRegionMonth = new Set();
+            allData.forEach(row => {
+                const pedidoDateStr = getRowValue(row, 'pedidoDate');
+                const invoice = getRowValue(row, 'invoiceNumber');
+                if (!pedidoDateStr || !invoice) return;
+
+                const pedidoDate = parseDate(pedidoDateStr);
+                if (isNaN(pedidoDate.getTime())) return;
+                
+                const year = pedidoDate.getFullYear();
+                const monthKey = `${year}-${String(pedidoDate.getMonth() + 1).padStart(2, '0')}`;
+                
+                const totalKey = `${monthKey}-${invoice}`;
+                if (!uniqueInvoicesByMonth.has(totalKey)) {
+                    monthlyInvoicesTotal[monthKey] = (monthlyInvoicesTotal[monthKey] || 0) + 1;
+                    uniqueInvoicesByMonth.add(totalKey);
+                }
+
+                const region = getRowValue(row, 'region');
+                if (region) {
+                    const regionKey = `${region}-${monthKey}-${invoice}`;
+                    if (!uniqueInvoicesByRegionMonth.has(regionKey)) {
+                        if (!monthlyInvoicesByRegion[region]) {
+                            monthlyInvoicesByRegion[region] = {};
+                        }
+                        monthlyInvoicesByRegion[region][monthKey] = (monthlyInvoicesByRegion[region][monthKey] || 0) + 1;
+                        uniqueInvoicesByRegionMonth.add(regionKey);
+                    }
+                }
+            });
+
+            const mapData = [['State', 'Region']];
+            for (const uf in stateMappings) {
+                mapData.push([stateMappings[uf].code, regionInfo[stateMappings[uf].region].colorIndex]);
+            }
+            
+
+            return { 
+                totalDeliveries, otifRate, onTimeRate, inFullRate, carrierPerformance, regionPerformance, statePerformance,
+                topDelayReasons, totalForDelayReasons,
+                topDiscrepancyReasons, totalDiscrepancy,
+                carrierPerformanceByReason,
+                delayDistributionData, 
+                delaysByRegion,
+                delaysByUF,
+                delaysByCarrierInUF,
+                deliveredTotal, deliveredOnTime, deliveredDelayed,
+                pendingTotal, pendingOnTime, pendingDelayed,
+                pendingDelayedByCarrierAndRange,
+                mapData,
+                mapLabelData,
+                monthlyPerformance,
+                yearForHistory,
+                historicalCarrierPerformance,
+                monthlyInvoicesByRegion,
+                monthlyInvoicesTotal
+            };
+            
+            } catch (error) {
+                console.error('Error calculating metrics:', error);
+                // Return empty metrics on error
+                return {
+                    totalDeliveries: 0,
+                    otifRate: 0,
+                    onTimeRate: 0,
+                    inFullRate: 0,
+                    carrierPerformance: [],
+                    regionPerformance: [],
+                    statePerformance: [],
+                    topDelayReasons: [],
+                    totalForDelayReasons: 0,
+                    topDiscrepancyReasons: [],
+                    totalDiscrepancy: 0,
+                    carrierPerformanceByReason: { delay: {}, discrepancy: {} },
+                    delayDistributionData: [],
+                    delaysByRegion: {},
+                    delaysByUF: {},
+                    delaysByCarrierInUF: {},
+                    deliveredTotal: 0,
+                    deliveredOnTime: 0,
+                    deliveredDelayed: 0,
+                    pendingTotal: 0,
+                    pendingOnTime: 0,
+                    pendingDelayed: 0,
+                    pendingDelayedByCarrierAndRange: {},
+                    mapData: [['State', 'Region']],
+                    mapLabelData: [],
+                    monthlyPerformance: [],
+                    yearForHistory: new Date().getFullYear(),
+                    historicalCarrierPerformance: {},
+                    monthlyInvoicesByRegion: {},
+                    monthlyInvoicesTotal: {}
+                };
+            }
+        };
+
+        const drawMapChart = (mapData) => {
+            if (!google || !google.visualization || !google.visualization.GeoChart) {
+                console.warn('Google Charts not loaded yet, skipping map chart');
+                return;
+            }
+
+            const data = google.visualization.arrayToDataTable(mapData);
+            
+            const options = {
+                region: 'BR',
+                displayMode: 'regions',
+                resolution: 'provinces',
+                colorAxis: {
+                    values: [1, 2, 3, 4, 5],
+                    colors: ['#34D399', '#60A5FA', '#FBBF24', '#F87171', '#A78BFA'] // Verde, Azul, Amarelo, Vermelho, Roxo
+                },
+                backgroundColor: '#1e293b',
+                datalessRegionColor: '#0f172a',
+                defaultColor: '#0f172a',
+                legend: 'none',
+                tooltip: { trigger: 'none' }
+            };
+            
+            const chartContainer = document.getElementById('geochart-brazil');
+            if (chartContainer) {
+                const chart = new google.visualization.GeoChart(chartContainer);
+
+                google.visualization.events.addListener(chart, 'select', () => {
+                    const selection = chart.getSelection();
+                    if (selection.length > 0) {
+                        const selectedItem = selection[0];
+                        const regionColorIndex = data.getValue(selectedItem.row, 1);
+                        const regionNameFound = Object.keys(regionInfo).find(r => regionInfo[r].colorIndex === regionColorIndex);
+
+                        if(regionNameFound){
+                            isMapDrilldownActive = true;
+                            selectedRegion = regionNameFound;
+                            renderDashboard();
+                        }
+                    }
+                });
+
+                chart.draw(data, options);
+            }
+        }
+
+        let isProcessingFile = false;
+        
+        const processFile = async (file) => {
+             if (!file) return;
+             
+             if (isProcessingFile) {
+                 console.warn('Arquivo já está sendo processado, ignorando chamada duplicada');
+                 return;
+             }
+             
+             isProcessingFile = true;
+            
+            importError.textContent = '';
+            if (loadedFiles.some(f => f.name === file.name)) {
+                importError.textContent = `O ficheiro "${file.name}" já foi importado.`;
+                isProcessingFile = false;
+                return;
+            }
+
+            const reader = new FileReader();
+            const fileExtension = file.name.split('.').pop().toLowerCase();
+            
+            reader.onload = async (e) => {
+                try {
+                    let rawData = [];
+                     if (fileExtension === 'csv') {
+                         const text = e.target.result;
+                         const lines = text.trim().split(/\r?\n/);
+                         const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+                         rawData = lines.slice(1).map(line => {
+                             const values = line.split(',');
+                             return headers.reduce((obj, header, index) => {
+                                 obj[header] = values[index] ? values[index].trim().replace(/"/g, '') : '';
+                                 return obj;
+                             }, {});
+                         });
+                     } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+                         if (typeof XLSX === 'undefined') {
+                             importError.textContent = 'A biblioteca de leitura de planilhas (XLSX) não pôde ser carregada.';
+                             isProcessingFile = false;
+                             return;
+                         }
+                         
+                         showLoading('A processar ficheiro Excel... Isso pode demorar alguns momentos.');
+                         
+                         // Use dense mode to handle large files better
+                         const data = new Uint8Array(e.target.result);
+                         const workbook = XLSX.read(data, { 
+                             type: 'array',
+                             cellDates: true,
+                             cellNF: false,
+                             cellText: false,
+                             dense: true  // Use dense mode for better performance with large files
+                         });
+                         const sheetName = workbook.SheetNames[0];
+                         const worksheet = workbook.Sheets[sheetName];
+                         
+                         showLoading('A converter dados... Aguarde.');
+                         
+                         rawData = XLSX.utils.sheet_to_json(worksheet, {
+                             raw: false,
+                             defval: ''
+                         });
+                     } else {
+                         importError.textContent = 'Formato de ficheiro não suportado. Use .csv ou .xlsx';
+                         isProcessingFile = false;
+                         return;
+                     }
+                    
+                    if (rawData.length > 0) {
+                        const headers = Object.keys(rawData[0]);
+                        const hasDateColumn = KEY_MAPPINGS.pedidoDate.some(key => headers.includes(key));
+                        if (!hasDateColumn) {
+                            importError.textContent = `A coluna '${KEY_MAPPINGS.pedidoDate[0]}' é obrigatória e não foi encontrada no ficheiro.`;
+                            return;
+                        }
+                    }
+
+                    showLoading(`A processar ${rawData.length.toLocaleString('pt-BR')} linhas...`);
+
+                    // Simple processing - just add to memory, no database
+                    allData = []; // Clear existing data
+                    loadedFiles = []; // Clear existing files
+                    
+                    // Add data directly with filename
+                    rawData.forEach(row => {
+                        allData.push({ ...row, fileName: file.name });
+                    });
+                    
+                    loadedFiles.push({ name: file.name, uploadDate: new Date().toISOString() });
+
+                    showLoading('A renderizar dashboard...');
+                    
+                    renderLoadedFiles();
+                    switchView('dashboard');
+                    renderDashboard();
+                } catch (err) {
+                    importError.textContent = 'Ocorreu um erro ao processar o ficheiro.';
+                     console.error(err);
+                } finally {
+                    hideLoading();
+                    isProcessingFile = false;
+                }
+            };
+            
+            reader.onerror = () => {
+                importError.textContent = 'Erro ao ler o ficheiro.';
+                hideLoading();
+                isProcessingFile = false;
+            };
+            
+            if (fileExtension === 'csv') {
+                reader.readAsText(file, 'UTF-8');
+            } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+                reader.readAsArrayBuffer(file);
+            } else {
+                importError.textContent = 'Formato de ficheiro não suportado. Use .csv ou .xlsx';
+                isProcessingFile = false;
+            }
+        };
+        
+        const removeFile = async (fileNameToRemove) => {
+            showModal(
+                `Remover "${fileNameToRemove}"?`,
+                'Os dados deste ficheiro serão removidos. Esta ação é irreversível.',
+                async () => {
+                    try {
+                        showLoading(`A remover o ficheiro ${fileNameToRemove}...`);
+                        
+                        allData = allData.filter(row => row.fileName !== fileNameToRemove);
+                        loadedFiles = loadedFiles.filter(file => file.name !== fileNameToRemove);
+
+                        renderLoadedFiles();
+                        renderDashboard();
+                    } catch (e) {
+                        importError.textContent = "Erro ao remover o ficheiro.";
+                        console.error(e);
+                    } finally {
+                        hideLoading();
+                    }
+                }
+            );
+        };
+
+        const clearAllData = async () => {
+            showModal(
+                'Limpar todo o histórico?',
+                'Esta ação removerá todos os ficheiros e dados importados.',
+                async () => {
+                     try {
+                         showLoading('A limpar todo o histórico...');
+                         
+                         allData = [];
+                         loadedFiles = [];
+                         
+                         renderLoadedFiles();
+                         renderDashboard();
+                     } catch (e) {
+                         importError.textContent = "Erro ao limpar o histórico.";
+                         console.error(e);
+                     } finally {
+                         hideLoading();
+                     }
+                }
+            );
+        };
+
+        // --- EVENT LISTENERS ---
+        navDashboard.addEventListener('click', () => switchView('dashboard'));
+        navImport.addEventListener('click', () => switchView('import'));
+        fileUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            processFile(file);
+            // Reset the input to allow re-uploading the same file if needed
+            e.target.value = '';
+        });
+        modalCancelBtn.addEventListener('click', hideModal);
+        modalConfirmBtn.addEventListener('click', () => {
+            if (typeof confirmAction === 'function') {
+                confirmAction();
+            }
+            hideModal();
+        });
+        
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('border-blue-500', 'bg-blue-50'); });
+        dropZone.addEventListener('dragleave', (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('border-blue-500', 'bg-blue-50'); });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                processFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 300) {
+                backToTopBtn.classList.remove('hidden');
+            } else {
+                backToTopBtn.classList.add('hidden');
+            }
+        });
+
+        backToTopBtn.addEventListener('click', () => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        
+        document.body.addEventListener('click', (e) => {
+            if (e.target.id === 'go-to-import-btn') {
+                switchView('import');
+            }
+            if(e.target.classList.contains('remove-file-btn')) {
+                const filename = e.target.dataset.filename;
+                removeFile(filename);
+            }
+            if(e.target.id === 'clear-history-btn') {
+                clearAllData();
+            }
+            if(e.target.id === 'apply-filter-btn') {
+                const startDate = document.getElementById('start-date').value;
+                const endDate = document.getElementById('end-date').value;
+                const carrier = document.getElementById('carrier-filter').value;
+
+                if (startDate && endDate && startDate > endDate) {
+                    const messagesContainer = document.getElementById('dashboard-messages');
+                    if(messagesContainer) {
+                        messagesContainer.innerHTML = `<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded-md" role="alert"><p class="font-bold">Data Inválida!</p><p>A data de início não pode ser posterior à data de fim.</p></div>`;
+                    }
+                    return;
+                }
+
+                appliedDateRange.start = startDate;
+                appliedDateRange.end = endDate;
+                selectedCarrierFromFilter = carrier || null;
+                navigateToState({ region: null, state: null, carrier: null, reason: null, delayRange: null, delayRegion: null, delayUF: null });
+            }
+            if(e.target.id === 'clear-filter-btn') {
+                 appliedDateRange = { start: '', end: '' };
+                 selectedCarrierFromFilter = null;
+                 navigateToState({ region: null, state: null, carrier: null, reason: null, delayRange: null, delayRegion: null, delayUF: null });
+            }
+            const breadcrumbLink = e.target.closest('.breadcrumb-link');
+            if(breadcrumbLink) {
+                e.preventDefault();
+                const state = JSON.parse(breadcrumbLink.dataset.state);
+                navigateToState(state);
+            }
+
+            if(e.target.id === 'drilldown-pending-delayed') {
+                e.preventDefault();
+                isPendingDelayedDrilldownActive = true;
+                // Reset other drilldown states to ensure clean view
+                isMapDrilldownActive = false;
+                selectedRegion = null;
+                selectedState = null;
+                selectedCarrier = null;
+                selectedReason = null;
+                selectedDelayRange = null;
+                selectedDelayRegion = null;
+                selectedDelayUF = null;
+                renderDashboard();
+            }
+
+            const clickableBar = e.target.closest('.clickable-bar');
+            if(clickableBar) {
+                const chart = clickableBar.closest('.chart-container');
+                const label = clickableBar.dataset.label;
+
+                if (chart && chart.id === 'state-performance') {
+                    selectedState = label;
+                } else if (chart && chart.id === 'region-performance') {
+                    selectedRegion = label;
+                } else if (chart && (chart.id === 'carrier-performance' || chart.id === 'carrier-in-state-performance' || chart.id === 'carrier-performance-region')) {
+                    selectedCarrier = label;
+                } else if (chart && chart.id === 'delay-distribution') {
+                    selectedDelayRange = label;
+                    selectedDelayRegion = null;
+                    selectedDelayUF = null;
+                } else if (chart && chart.id === 'delay-by-region') {
+                    selectedDelayRegion = label;
+                    selectedDelayUF = null;
+                } else if (chart && chart.id === 'delay-by-uf') {
+                    selectedDelayUF = label;
+                }
+                
+                renderDashboard();
+                return; 
+            }
+
+            const reasonRow = e.target.closest('.reason-row');
+            if(reasonRow) {
+                selectedReason = {
+                    reason: reasonRow.dataset.reason,
+                    type: reasonRow.dataset.type
+                };
+                renderDashboard();
+            }
+        });
+
+        // --- INICIALIZAÇÃO ---
+        const initializeApp = async () => {
+            // Simple initialization - no database, just start with empty data
+            allData = [];
+            loadedFiles = [];
+            renderLoadedFiles();
+            renderDashboard();
+        };
+
+        initializeApp();
+
+    </script>
+</body>
+</html>
+
