@@ -148,16 +148,39 @@
             uf: ['UF', 'uf'],
             delayReason: ['Motivos', 'motivos', 'MOTIVOS', 'Motivo Atraso'],
             discrepancyReason: ['Divergência', 'divergência', 'DIVERGÊNCIA', 'Motivo Divergência'],
-            delayDays: ['DIAS ATRASOS ÚTEIS', 'dias atrasos úteis', 'Dias Atrasos Úteis', 'Dias de Atraso (Úteis)']
+            delayDays: ['DIAS ATRASOS ÚTEIS', 'dias atrasos úteis', 'Dias Atrasos Úteis', 'Dias de Atraso (Úteis)'],
+            nfValue: ['Valor NF', 'valor nf', 'VALOR NF', 'Valor Total NF', 'VALOR TOTAL NF', 'VL NF', 'vl nf', 'Vlr NF', 'VLR NF', 'Valor Total', 'valor total', 'VALOR TOTAL', 'Valor', 'valor', 'VALOR'],
+            freightValue: ['Valor Frete', 'valor frete', 'VALOR FRETE', 'Vl Frete', 'VL FRETE', 'Vlr Frete', 'VLR FRETE', 'Frete', 'frete', 'FRETE'],
+            itemsQty: ['Qt Pedida', 'qt pedida', 'QT PEDIDA', 'Qtd Pedida', 'QTD PEDIDA', 'Qtde Pedida', 'Qtd Itens', 'qtd itens', 'QTD ITENS', 'Qtde Itens', 'QTDE ITENS', 'Quantidade Itens', 'quantidade itens', 'Qtd', 'QTDE', 'Quantidade', 'Items', 'Itens']
         };
+
+        // Cache de chaves normalizadas por linha (evita recomputar para cada chamada)
+        const _rowKeysCacheMap = new WeakMap();
 
         const getRowValue = (row, key) => {
             if (!row) return undefined;
             const keysToTry = KEY_MAPPINGS[key];
             if (!keysToTry) return undefined;
+            // 1) Correspondência exata (caminho rápido)
             for (const k of keysToTry) {
                 if (row[k] !== undefined) {
                     return row[k];
+                }
+            }
+            // 2) Fallback case-insensitive + trim (cacheado por objeto de linha)
+            let cachedKeys = _rowKeysCacheMap.get(row);
+            if (!cachedKeys) {
+                cachedKeys = {};
+                for (const rowKey of Object.keys(row)) {
+                    cachedKeys[rowKey.trim().toLowerCase()] = rowKey;
+                }
+                _rowKeysCacheMap.set(row, cachedKeys);
+            }
+            for (const k of keysToTry) {
+                const norm = k.trim().toLowerCase();
+                const actualKey = cachedKeys[norm];
+                if (actualKey !== undefined && row[actualKey] !== undefined) {
+                    return row[actualKey];
                 }
             }
             return undefined;
@@ -212,7 +235,11 @@
         let confirmAction = null;
 
         // Carrega a biblioteca de gráficos do Google
-        google.charts.load('current', { 'packages':['geochart'] });
+        if (typeof google !== 'undefined' && google.charts) {
+            google.charts.load('current', { 'packages':['geochart'] });
+        } else {
+            console.warn('Google Charts script não carregou (bloqueado neste ambiente de preview); o mapa do Brasil não será exibido.');
+        }
 
         // --- BASE DE DADOS INDEXEDDB ---
         // Database initialization (not used in presentation mode)
@@ -410,6 +437,92 @@
             }
         };
 
+        const renderKPIStrip = (metrics) => {
+            const fmtCurrency = (n) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const st = metrics.kpiColumnStatus || {};
+            const headers = metrics.allColumnHeaders || [];
+
+            const missingHtml = (columnKey, label, aliases) => {
+                if (st[columnKey]) return '';
+                return `<p class="mt-1 text-xs text-yellow-400 flex items-center gap-1">
+                    <svg class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    Coluna não encontrada
+                </p>`;
+            };
+
+            const colListHtml = headers.length > 0
+                ? `<details class="mt-3 col-span-full">
+                    <summary class="cursor-pointer text-xs text-slate-400 hover:text-slate-200">
+                        ▶ Ver colunas disponíveis no ficheiro (${headers.length})
+                    </summary>
+                    <div class="mt-2 p-3 bg-slate-900 rounded-md border border-slate-600 text-xs text-slate-300 break-all leading-5">
+                        ${headers.map(h => `<span class="inline-block bg-slate-700 rounded px-1.5 py-0.5 mr-1 mb-1 font-mono">${h}</span>`).join('')}
+                    </div>
+                   </details>`
+                : '';
+
+            const anyMissing = !st.nfValue || !st.freightValue || !st.itemsQty;
+
+            return `
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div class="bg-slate-800 rounded-lg border ${!st.nfValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-slate-500 transition-colors">
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Faturamento Total</p>
+                        <div class="p-2 rounded-full bg-green-500/20 text-green-400 flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-xl font-bold text-slate-50 truncate">R$ ${fmtCurrency(metrics.totalRevenue)}</p>
+                    <p class="mt-1 text-xs text-green-400">NF Valor Total da operação</p>
+                    ${missingHtml('nfValue', 'Valor NF', [])}
+                </div>
+                <div class="bg-slate-800 rounded-lg border ${!st.nfValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-slate-500 transition-colors">
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Ticket Médio P/ Pedido</p>
+                        <div class="p-2 rounded-full bg-blue-500/20 text-blue-400 flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-xl font-bold text-slate-50 truncate">R$ ${fmtCurrency(metrics.avgTicket)}</p>
+                    <p class="mt-1 text-xs text-slate-400">Média de valor por nota fiscal</p>
+                    ${missingHtml('nfValue', 'Valor NF', [])}
+                </div>
+                <div class="bg-slate-800 rounded-lg border ${!st.itemsQty ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-slate-500 transition-colors">
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Itens Vendidos</p>
+                        <div class="p-2 rounded-full bg-blue-500/20 text-blue-400 flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-xl font-bold text-slate-50">${metrics.totalItems.toLocaleString('pt-BR')}</p>
+                    <p class="mt-1 text-xs text-slate-400">${metrics.avgItemsPerNF.toFixed(1)} por pedido</p>
+                    ${missingHtml('itemsQty', 'Qtd Itens', [])}
+                </div>
+                <div class="bg-slate-800 rounded-lg border ${!st.freightValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-slate-500 transition-colors">
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Frete Médio P/ Volume</p>
+                        <div class="p-2 rounded-full bg-orange-500/20 text-orange-400 flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10l2 2h9m1-12h3l3 5v5h-6V4z" /></svg>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-xl font-bold text-slate-50 truncate">R$ ${fmtCurrency(metrics.avgFreight)}</p>
+                    <p class="mt-1 text-xs"><span class="text-orange-400">Representa ${metrics.freightAsPercentOfRevenue.toFixed(1)}%</span><span class="text-slate-400"> do faturamento</span></p>
+                    ${missingHtml('freightValue', 'Valor Frete', [])}
+                </div>
+                <div class="bg-slate-800 rounded-lg border border-slate-700 p-4 hover:border-slate-500 transition-colors">
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Tempo de Entrega</p>
+                        <div class="p-2 rounded-full bg-purple-500/20 text-purple-400 flex-shrink-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </div>
+                    </div>
+                    <p class="mt-2 text-xl font-bold text-slate-50">${metrics.avgDeliveryDays.toFixed(1)} dias</p>
+                    <p class="mt-1 text-xs text-slate-400">Média dias úteis · <span class="text-slate-300">${metrics.deliveryCount} pedidos</span></p>
+                </div>
+                ${anyMissing ? colListHtml : ''}
+            </div>`;
+        };
+
         const renderMainDashboardView = () => {
             const metrics = calculateMetrics();
 
@@ -422,6 +535,7 @@
 
             return `
                 ${renderDashboardHeader(metrics)}
+                ${renderKPIStrip(metrics)}
                 ${renderDeliveryStatusCards(metrics)}
                 ${renderMapChart(metrics)}
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
@@ -988,15 +1102,23 @@
 
         const renderSingleMetricChart = (monthlyData, title, metricKey, countKey, year, target) => {
             const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-            const visibleData = monthlyData.filter(m => m.totalCount > 0);
             const colorClassFn = metricKey === 'inFullRate' ? getInFullColorClass : getOtifColorClass;
 
+            // Mostra todos os meses da janela calculada (inclusive os sem dado ainda, ex: meses futuros
+            // do ano corrente quando já estamos no modo "Jan-Dez fixo"), e não apenas os preenchidos.
+            const visibleData = monthlyData;
+
+            // Monta o rótulo do período: um único ano quando todos os meses são do mesmo ano,
+            // ou "AnoInicial–AnoFinal" quando a janela móvel cruza a virada do ano.
+            const yearsInWindow = [...new Set(visibleData.map(m => m.month.split('-')[0]))];
+            const yearLabel = yearsInWindow.length > 1 ? `${yearsInWindow[0]}–${yearsInWindow[yearsInWindow.length - 1]}` : (yearsInWindow[0] || year);
+
             if (!visibleData || visibleData.length === 0) {
-                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">${title} (${year})</h3><p class="text-slate-400">Nenhum dado para exibir.</p></div>`;
+                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700"><h3 class="text-lg font-semibold mb-4 text-slate-200">${title} (${yearLabel})</h3><p class="text-slate-400">Nenhum dado para exibir.</p></div>`;
             }
 
             let html = `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
-                <h3 class="text-lg font-semibold mb-2 text-slate-200">${title} (${year})</h3>
+                <h3 class="text-lg font-semibold mb-2 text-slate-200">${title} (${yearLabel})</h3>
                  <p class="text-base font-medium text-slate-300 mb-4 flex items-center">
                     <span class="border-t-2 border-dashed border-red-500 w-4 inline-block mr-2"></span>
                     Meta: ${target}%
@@ -1084,7 +1206,11 @@
 
         // --- LÓGICA DE DADOS ---
         const parseDate = (rowDateStr) => {
-            if (typeof rowDateStr === 'number') { // Formato Excel
+            // Objeto Date JS (cellDates: true pode retornar Date diretamente)
+            if (rowDateStr instanceof Date) {
+                return isNaN(rowDateStr.getTime()) ? new Date('invalid') : new Date(rowDateStr);
+            }
+            if (typeof rowDateStr === 'number') { // Formato Excel serial
                 const excelEpoch = new Date(1899, 11, 30);
                 const result = new Date(excelEpoch.getTime() + rowDateStr * 86400000);
                 return result;
@@ -1119,9 +1245,9 @@
                             day = parts[1].padStart(2, '0');
                             year = parts[2];
                         } else {
-                            // Ambiguous - assume MM/DD/YYYY (American format)
-                            month = parts[0].padStart(2, '0');
-                            day = parts[1].padStart(2, '0');
+                            // Ambiguous - assume DD/MM/YYYY (formato padrão brasileiro)
+                            day = parts[0].padStart(2, '0');
+                            month = parts[1].padStart(2, '0');
                             year = parts[2];
                         }
                     } else {
@@ -1163,7 +1289,18 @@
 
         const calculateMetrics = (data) => {
             try {
-                const sourceData = data || getFilteredData();
+                const _rawData = data || getFilteredData();
+
+                // Desduplicar por NF: todos os indicadores usam apenas a primeira ocorrência de cada nota fiscal
+                const _seenNFsGlobal = new Set();
+                const sourceData = (_rawData || []).filter(row => {
+                    const nf = getRowValue(row, 'invoiceNumber');
+                    if (!nf) return true; // linhas sem NF são sempre incluídas
+                    const key = String(nf).trim();
+                    if (_seenNFsGlobal.has(key)) return false;
+                    _seenNFsGlobal.add(key);
+                    return true;
+                });
                 
                 if (!sourceData || sourceData.length === 0) {
                     return {
@@ -1196,7 +1333,10 @@
                         yearForHistory: new Date().getFullYear(),
                         historicalCarrierPerformance: {},
                         monthlyInvoicesByRegion: {},
-                        monthlyInvoicesTotal: {}
+                        monthlyInvoicesTotal: {},
+                        totalRevenue: 0, avgTicket: 0, totalItems: 0, avgItemsPerNF: 0, avgFreight: 0, freightAsPercentOfRevenue: 0, avgDeliveryDays: 0, deliveryCount: 0,
+                        kpiColumnStatus: { nfValue: false, freightValue: false, itemsQty: false },
+                        allColumnHeaders: []
                     };
                 }
                 
@@ -1410,6 +1550,89 @@
             });
             const delayDistributionData = Object.entries(delayDistribution).map(([label, count]) => ({ label, value: count }));
 
+            // --- KPIs FINANCEIROS E OPERACIONAIS ---
+            const parseNumericValue = (v) => {
+                if (v === undefined || v === null || v === '') return 0;
+                if (typeof v === 'number') return isNaN(v) ? 0 : v;
+                const str = String(v).trim().replace(/[R$\s%]/g, '');
+                if (str === '') return 0;
+                const lastDot = str.lastIndexOf('.');
+                const lastComma = str.lastIndexOf(',');
+                if (lastComma > lastDot) {
+                    // Formato brasileiro: 1.234,56  →  ponto = milhar, vírgula = decimal
+                    return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+                }
+                // Formato inglês ou inteiro: 1234.56 ou 1,234.56
+                return parseFloat(str.replace(/,/g, '')) || 0;
+            };
+
+            // Col D (Frete): apenas NFs únicas (sourceData já deduplicado)
+            const totalFreight = sourceData.reduce((sum, row) => sum + parseNumericValue(getRowValue(row, 'freightValue')), 0);
+            // Col E (Valor NF): todas as linhas preenchidas, mesmo com NF duplicada
+            const totalNFValue = _rawData.reduce((sum, row) => sum + parseNumericValue(getRowValue(row, 'nfValue')), 0);
+            // Faturamento Total = Valor (col E, todas linhas) + Frete (col D, NFs únicas)
+            const totalRevenue = totalNFValue + totalFreight;
+            // Col C (Qt Pedida): todas as linhas, mesmo com NF duplicada
+            const totalItems = _rawData.reduce((sum, row) => {
+                const v = getRowValue(row, 'itemsQty');
+                return sum + (v !== undefined ? (parseInt(v, 10) || 0) : 0);
+            }, 0);
+
+            const uniqueNFCount = sourceData.length || 1;
+
+            const avgTicket = uniqueNFCount > 0 ? totalRevenue / uniqueNFCount : 0;
+            // Frete Médio = Σ col D (NFs únicas) ÷ total de itens vendidos (col C, todas as linhas)
+            const avgFreight = totalItems > 0 ? totalFreight / totalItems : 0;
+            const freightAsPercentOfRevenue = totalRevenue > 0 ? (totalFreight / totalRevenue) * 100 : 0;
+            const avgItemsPerNF = uniqueNFCount > 0 ? totalItems / uniqueNFCount : 0;
+
+            // Conta dias úteis (seg–sex) entre duas datas, exclusivo no início, inclusivo no fim
+            const countBusinessDays = (start, end) => {
+                if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+                let count = 0;
+                const cur = new Date(start);
+                cur.setHours(0, 0, 0, 0);
+                const endDay = new Date(end);
+                endDay.setHours(0, 0, 0, 0);
+                cur.setDate(cur.getDate() + 1); // começa a contar no dia seguinte ao pedido
+                while (cur <= endDay) {
+                    const day = cur.getDay();
+                    if (day !== 0 && day !== 6) count++; // exclui sábado (6) e domingo (0)
+                    cur.setDate(cur.getDate() + 1);
+                }
+                return count;
+            };
+
+            // Tempo de entrega: col L (Data Pedido) → col P (Data de entrega), dias úteis
+            // Exclui: NFs duplicadas (sourceData já deduplicado), "Desistência de compra" (processedData),
+            //         linhas sem data de entrega, resultados vazios ou negativos
+            const deliveryTimes = processedData
+                .filter(row => {
+                    const d = getRowValue(row, 'deliveryDate');
+                    return d && String(d).trim() !== '';
+                })
+                .map(row => {
+                    const pedido = parseDate(getRowValue(row, 'pedidoDate'));
+                    const entrega = parseDate(getRowValue(row, 'deliveryDate'));
+                    return countBusinessDays(pedido, entrega);
+                })
+                .filter(d => d !== null && d > 0);
+            const deliveryCount = deliveryTimes.length;
+            const avgDeliveryDays = deliveryCount > 0
+                ? deliveryTimes.reduce((s, v) => s + v, 0) / deliveryCount
+                : 0;
+
+            // Diagnóstico de colunas: quais colunas KPI foram encontradas nos dados
+            const sampleRow = sourceData[0] || null;
+            const kpiColumnStatus = {
+                nfValue:      sampleRow ? getRowValue(sampleRow, 'nfValue')      !== undefined : false,
+                freightValue: sampleRow ? getRowValue(sampleRow, 'freightValue') !== undefined : false,
+                itemsQty:     sampleRow ? getRowValue(sampleRow, 'itemsQty')     !== undefined : false,
+            };
+            const allColumnHeaders = sampleRow
+                ? Object.keys(sampleRow).filter(k => k !== 'fileName').sort()
+                : [];
+
             // --- CÁLCULOS HISTÓRICOS (NÃO FILTRADOS - USANDO 'allData') ---
             let historicalBaseData = allData;
             if(selectedCarrierFromFilter && !data){ // Do not apply carrier filter when calculating for a specific carrier detail view
@@ -1426,14 +1649,13 @@
                     if (year > yearForHistory) yearForHistory = year;
                 }
             }
-            
-            const monthlyPerformanceData = historicalBaseData.filter(row => {
-                const d = parseDate(getRowValue(row, 'pedidoDate'));
-                return d && !isNaN(d.getTime()) && d.getFullYear() === yearForHistory;
-            }).reduce((acc, curr) => {
+
+            // Agrega contagens por chave de mês "YYYY-MM" sobre TODOS os anos disponíveis
+            // (não apenas o yearForHistory), pois a janela pode precisar olhar para o ano anterior.
+            const monthlyPerformanceData = historicalBaseData.reduce((acc, curr) => {
                 const rowDate = parseDate(getRowValue(curr, 'pedidoDate'));
-                if (isNaN(rowDate.getTime())) return acc;
-                const monthKey = `${yearForHistory}-${String(rowDate.getMonth() + 1).padStart(2, '0')}`;
+                if (!rowDate || isNaN(rowDate.getTime())) return acc;
+                const monthKey = `${rowDate.getFullYear()}-${String(rowDate.getMonth() + 1).padStart(2, '0')}`;
                 if (!acc[monthKey]) acc[monthKey] = { total: 0, onTimeCount: 0, inFullCount: 0, otifCount: 0 };
                 const isOnTime = getRowValue(curr, 'status') !== 'Fora do Prazo';
                 const divergentValue = getRowValue(curr, 'divergent');
@@ -1445,8 +1667,40 @@
                 return acc;
             }, {});
 
-            const monthlyPerformance = Array.from({ length: 12 }).map((_, index) => {
+            // Quantos meses do yearForHistory (Jan até o mês mais recente com dado) já têm registro?
+            const filledMonthsInCurrentYear = Array.from({ length: 12 }).reduce((count, _, index) => {
                 const monthKey = `${yearForHistory}-${String(index + 1).padStart(2, '0')}`;
+                const data = monthlyPerformanceData[monthKey];
+                return count + ((data && data.total > 0) ? 1 : 0);
+            }, 0);
+
+            // Define a lista de chaves de mês (YYYY-MM) a exibir:
+            // - Se o ano corrente ainda não tem 8 meses preenchidos: janela móvel dos últimos 8 meses,
+            //   podendo cruzar para o ano anterior.
+            // - Se já tem 8 (ou mais) meses preenchidos: fixa em Jan-Dez do yearForHistory.
+            // Encontra o mês mais recente (YYYY-MM) que possui dados, para usar como âncora da janela móvel.
+            let latestMonthKey = null;
+            for (const key of Object.keys(monthlyPerformanceData)) {
+                if (!latestMonthKey || key > latestMonthKey) latestMonthKey = key;
+            }
+            const anchorDate = latestMonthKey
+                ? new Date(parseInt(latestMonthKey.split('-')[0], 10), parseInt(latestMonthKey.split('-')[1], 10) - 1, 1)
+                : new Date(yearForHistory, new Date().getMonth(), 1);
+
+            let monthKeysToShow;
+            if (filledMonthsInCurrentYear >= 8) {
+                monthKeysToShow = Array.from({ length: 12 }).map((_, index) =>
+                    `${yearForHistory}-${String(index + 1).padStart(2, '0')}`
+                );
+            } else {
+                monthKeysToShow = [];
+                for (let i = 7; i >= 0; i--) {
+                    const d = new Date(anchorDate.getFullYear(), anchorDate.getMonth() - i, 1);
+                    monthKeysToShow.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+                }
+            }
+
+            const monthlyPerformance = monthKeysToShow.map((monthKey) => {
                 const data = monthlyPerformanceData[monthKey];
                 if (data && data.total > 0) {
                     const onTimeRate = (data.onTimeCount / data.total) * 100;
@@ -1563,7 +1817,9 @@
                 yearForHistory,
                 historicalCarrierPerformance,
                 monthlyInvoicesByRegion,
-                monthlyInvoicesTotal
+                monthlyInvoicesTotal,
+                totalRevenue, avgTicket, totalItems, avgItemsPerNF, avgFreight, freightAsPercentOfRevenue, avgDeliveryDays, deliveryCount,
+                kpiColumnStatus, allColumnHeaders
             };
             
             } catch (error) {
@@ -1599,13 +1855,16 @@
                     yearForHistory: new Date().getFullYear(),
                     historicalCarrierPerformance: {},
                     monthlyInvoicesByRegion: {},
-                    monthlyInvoicesTotal: {}
+                    monthlyInvoicesTotal: {},
+                    totalRevenue: 0, avgTicket: 0, totalItems: 0, avgItemsPerNF: 0, avgFreight: 0, freightAsPercentOfRevenue: 0, avgDeliveryDays: 0, deliveryCount: 0,
+                    kpiColumnStatus: { nfValue: false, freightValue: false, itemsQty: false },
+                    allColumnHeaders: []
                 };
             }
         };
 
         const drawMapChart = (mapData) => {
-            if (!google || !google.visualization || !google.visualization.GeoChart) {
+            if (typeof google === 'undefined' || !google.visualization || !google.visualization.GeoChart) {
                 console.warn('Google Charts not loaded yet, skipping map chart');
                 return;
             }
@@ -1963,4 +2222,3 @@
     </script>
 </body>
 </html>
-
