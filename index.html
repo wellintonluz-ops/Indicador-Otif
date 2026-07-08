@@ -134,6 +134,7 @@
         let isMapDrilldownActive = false;
         let selectedKpiCard = null; // 'revenue' | 'ticket' | 'items' | 'freight' | 'delivery'
         let kpiDrilldownUF = null;
+        let kpiViewMode = 'geo'; // 'geo' (por estado/cidade) | 'history' (evolução mensal)
         // let isDbAvailable = true;
         // let dbPromise;
 
@@ -336,6 +337,7 @@
             selectedDelayUF = newState.delayUF;
             selectedKpiCard = newState.kpiCard || null;
             kpiDrilldownUF = newState.kpiUF || null;
+            kpiViewMode = 'geo';
             renderDashboard();
         }
 
@@ -483,12 +485,148 @@
             }
         };
 
-        // Lista de UFs/cidades por card de KPI, reaproveitando calculateMetrics() para cada subconjunto
+        // --- Helpers leves para o drilldown de KPI (evitam chamar calculateMetrics, que é pesada) ---
+        const kpiParseNumericValue = (v) => {
+            if (v === undefined || v === null || v === '') return 0;
+            if (typeof v === 'number') return v;
+            const str = String(v).trim();
+            if (!str) return 0;
+            const lastDot = str.lastIndexOf('.');
+            const lastComma = str.lastIndexOf(',');
+            if (lastComma > lastDot) {
+                return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+            }
+            return parseFloat(str.replace(/,/g, '')) || 0;
+        };
+
+        const kpiCountBusinessDays = (start, end) => {
+            if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+            let count = 0;
+            const cur = new Date(start);
+            cur.setHours(0, 0, 0, 0);
+            const endDay = new Date(end);
+            endDay.setHours(0, 0, 0, 0);
+            cur.setDate(cur.getDate() + 1);
+            while (cur <= endDay) {
+                const day = cur.getDay();
+                if (day !== 0 && day !== 6) count++;
+                cur.setDate(cur.getDate() + 1);
+            }
+            return count;
+        };
+
+        // Calcula, numa única passagem, só os números usados pelos 5 cards de KPI (mesma fórmula de calculateMetrics,
+        // mas sem recalcular OTIF/motivos/mapa/histórico geral — por isso é muito mais rápida para uso em drilldowns).
+        const computeKpiAggregates = (data) => {
+            const seen = new Set();
+            let totalFreight = 0, totalNFValue = 0, uniqueNFCount = 0, totalItems = 0;
+            let deliverySum = 0, deliveryCount = 0;
+
+            for (const row of data) {
+                totalNFValue += kpiParseNumericValue(getRowValue(row, 'nfValue'));
+                const itemsVal = getRowValue(row, 'itemsQty');
+                totalItems += itemsVal !== undefined ? (parseInt(itemsVal, 10) || 0) : 0;
+
+                const nf = getRowValue(row, 'invoiceNumber');
+                const key = nf ? String(nf).trim() : null;
+                const isFirstOccurrence = !key || !seen.has(key);
+                if (key) seen.add(key);
+
+                if (isFirstOccurrence) {
+                    uniqueNFCount++;
+                    totalFreight += kpiParseNumericValue(getRowValue(row, 'freightValue'));
+
+                    if (getRowValue(row, 'delayReason') !== 'Desistência de compra') {
+                        const dDate = getRowValue(row, 'deliveryDate');
+                        if (dDate && String(dDate).trim() !== '') {
+                            const days = kpiCountBusinessDays(parseDate(getRowValue(row, 'pedidoDate')), parseDate(dDate));
+                            if (days !== null && days > 0) {
+                                deliverySum += days;
+                                deliveryCount++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            const totalRevenue = totalNFValue + totalFreight;
+            return {
+                totalRevenue,
+                avgTicket: uniqueNFCount > 0 ? totalRevenue / uniqueNFCount : 0,
+                totalItems,
+                avgItemsPerNF: uniqueNFCount > 0 ? totalItems / uniqueNFCount : 0,
+                avgFreight: totalItems > 0 ? totalFreight / totalItems : 0,
+                avgDeliveryDays: deliveryCount > 0 ? deliverySum / deliveryCount : 0,
+                deliveryCount,
+                totalDeliveries: uniqueNFCount
+            };
+        };
+
+        // Agrupa linhas por uma chave (UF, cidade, mês...) numa única passagem O(n), em vez de N filtros O(n) cada
+        const groupRowsByKey = (data, keyFn) => {
+            const groups = new Map();
+            for (const row of data) {
+                const label = keyFn(row);
+                if (!label) continue;
+                if (!groups.has(label)) groups.set(label, []);
+                groups.get(label).push(row);
+            }
+            return groups;
+        };
+
+        // Histórico mensal (últimos N meses com dados) de uma métrica de KPI para um subconjunto de dados
+        const computeKpiMonthlyHistory = (data, monthsToShow = 12) => {
+            const buckets = groupRowsByKey(data, (row) => {
+                const d = parseDate(getRowValue(row, 'pedidoDate'));
+                if (!d || isNaN(d.getTime())) return null;
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            });
+            const sortedKeys = [...buckets.keys()].sort();
+            const lastKeys = sortedKeys.slice(-monthsToShow);
+            return lastKeys.map(key => {
+                const [y, mo] = key.split('-');
+                const monthLabel = new Date(parseInt(y, 10), parseInt(mo, 10) - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+                return { key, label: monthLabel, metrics: computeKpiAggregates(buckets.get(key)) };
+            });
+        };
+
+        const renderKpiHistoryPanel = (config, data) => {
+            const monthly = computeKpiMonthlyHistory(data, 12);
+            if (monthly.length === 0) {
+                return `<p class="text-slate-400">Sem dados suficientes para exibir o histórico mensal.</p>`;
+            }
+            const values = monthly.map(m => config.getValue(m.metrics));
+            const maxValue = Math.max(...values, 0.0001);
+            return `
+            <div class="space-y-3">
+                ${monthly.map((m, idx) => `
+                    <div class="flex items-center group">
+                        <p class="w-1/5 text-sm text-slate-300 pr-2 capitalize">${m.label}</p>
+                        <div class="w-4/5 bg-slate-700 rounded-full h-6">
+                            <div class="${config.barColor} h-6 rounded-full text-white text-xs flex items-center justify-end pr-2" style="width: ${Math.max((values[idx] / maxValue) * 100, 4)}%;">
+                                ${config.formatValue(values[idx])}
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>`;
+        };
+
+        const renderKpiHistoryToggleBtn = () => `
+            <button id="kpi-toggle-history" class="text-sm font-medium mb-4 inline-flex items-center gap-1 ${kpiViewMode === 'history' ? 'text-blue-400 hover:text-blue-300' : 'text-slate-400 hover:text-slate-200'}">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm6 0V9a2 2 0 012-2h0a2 2 0 012 2v10m-6 0V5a2 2 0 012-2h0a2 2 0 012 2v14"/></svg>
+                ${kpiViewMode === 'history' ? 'Ver Detalhamento por Estado/Cidade' : 'Ver Histórico Mensal'}
+            </button>`;
+
+        // View de drilldown dos cards de KPI: nível 1 = por Estado, nível 2 = por Cidade, com opção de histórico mensal.
+        // Usa computeKpiAggregates + groupRowsByKey (agregação O(n) numa única passagem) em vez de calculateMetrics,
+        // que reprocessaria o dataset inteiro (incluindo o histórico geral) a cada estado/cidade.
         const renderKpiDrilldownView = (cardKey, uf) => {
             const config = KPI_CARD_CONFIG[cardKey];
             if (!config) return renderMainDashboardView();
 
             const baseData = getFilteredData();
+            const scopedData = uf ? baseData.filter(row => getRowValue(row, 'uf') === uf) : baseData;
 
             const missingColumnHtml = (label) => `
                 <p class="text-sm text-yellow-400 flex items-center gap-1">
@@ -498,32 +636,40 @@
 
             // --- Nível 2: cidades dentro do estado selecionado ---
             if (uf) {
-                const ufData = baseData.filter(row => getRowValue(row, 'uf') === uf);
                 const backBtn = `<button id="kpi-back-to-states" class="text-sm text-blue-400 hover:text-blue-300 font-medium mb-4 inline-flex items-center gap-1">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                     Voltar para Estados
                 </button>`;
 
-                const hasCity = ufData.some(row => getRowValue(row, 'city') !== undefined);
-                if (!hasCity || ufData.length === 0) {
+                if (kpiViewMode === 'history') {
                     return `
                     <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
-                        ${backBtn}
+                        <div class="flex flex-wrap items-center justify-between gap-2">${backBtn}${renderKpiHistoryToggleBtn()}</div>
+                        <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} — Histórico Mensal</h3>
+                        <p class="text-sm text-slate-400 mb-4">Estado: <span class="text-slate-200 font-medium">${uf}</span></p>
+                        ${renderKpiHistoryPanel(config, scopedData)}
+                    </div>`;
+                }
+
+                const cityGroups = groupRowsByKey(scopedData, (row) => getRowValue(row, 'city'));
+                if (cityGroups.size === 0) {
+                    return `
+                    <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                        <div class="flex flex-wrap items-center justify-between gap-2">${backBtn}${renderKpiHistoryToggleBtn()}</div>
                         <h3 class="text-lg font-semibold mb-2 text-slate-200">${config.title} — ${uf}</h3>
                         ${missingColumnHtml('Coluna de cidade não encontrada nos dados importados.')}
                     </div>`;
                 }
 
-                const cities = [...new Set(ufData.map(row => getRowValue(row, 'city')).filter(Boolean))];
-                const cityRows = cities.map(city => {
-                    const m = calculateMetrics(ufData.filter(row => getRowValue(row, 'city') === city));
-                    return { label: city, value: config.getValue(m), volumeLabel: config.volumeLabel(m) };
+                const cityRows = [...cityGroups.entries()].map(([label, rows]) => {
+                    const m = computeKpiAggregates(rows);
+                    return { label, value: config.getValue(m), volumeLabel: config.volumeLabel(m) };
                 }).sort((a, b) => b.value - a.value);
                 const maxValue = Math.max(...cityRows.map(r => r.value), 0.0001);
 
                 return `
                 <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
-                    ${backBtn}
+                    <div class="flex flex-wrap items-center justify-between gap-2">${backBtn}${renderKpiHistoryToggleBtn()}</div>
                     <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} por Cidade</h3>
                     <p class="text-sm text-slate-400 mb-4">Estado: <span class="text-slate-200 font-medium">${uf}</span></p>
                     <div class="space-y-4">
@@ -547,24 +693,34 @@
                 Fechar detalhamento
             </button>`;
 
-            const ufs = [...new Set(baseData.map(row => getRowValue(row, 'uf')).filter(Boolean))];
-            if (ufs.length === 0) {
+            if (kpiViewMode === 'history') {
+                return `
+                <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    <div class="flex flex-wrap items-center justify-between gap-2">${closeBtn}${renderKpiHistoryToggleBtn()}</div>
+                    <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} — Histórico Mensal</h3>
+                    <p class="text-sm text-slate-400 mb-4">Evolução nos últimos meses com dados (respeitando os filtros aplicados).</p>
+                    ${renderKpiHistoryPanel(config, scopedData)}
+                </div>`;
+            }
+
+            const ufGroups = groupRowsByKey(baseData, (row) => getRowValue(row, 'uf'));
+            if (ufGroups.size === 0) {
                 return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
-                    ${closeBtn}
+                    <div class="flex flex-wrap items-center justify-between gap-2">${closeBtn}${renderKpiHistoryToggleBtn()}</div>
                     <h3 class="text-lg font-semibold mb-2 text-slate-200">${config.title} por Estado</h3>
                     ${missingColumnHtml('Coluna de UF não encontrada nos dados importados.')}
                 </div>`;
             }
 
-            const ufRows = ufs.map(ufLabel => {
-                const m = calculateMetrics(baseData.filter(row => getRowValue(row, 'uf') === ufLabel));
-                return { label: ufLabel, value: config.getValue(m), volumeLabel: config.volumeLabel(m) };
+            const ufRows = [...ufGroups.entries()].map(([label, rows]) => {
+                const m = computeKpiAggregates(rows);
+                return { label, value: config.getValue(m), volumeLabel: config.volumeLabel(m) };
             }).sort((a, b) => b.value - a.value);
             const maxValue = Math.max(...ufRows.map(r => r.value), 0.0001);
 
             return `
             <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
-                ${closeBtn}
+                <div class="flex flex-wrap items-center justify-between gap-2">${closeBtn}${renderKpiHistoryToggleBtn()}</div>
                 <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} por Estado</h3>
                 <p class="text-sm text-slate-400 mb-4">Clique num estado para detalhar por cidade.</p>
                 <div class="space-y-4">
@@ -2321,6 +2477,7 @@
                 selectedDelayUF = null;
                 selectedKpiCard = null;
                 kpiDrilldownUF = null;
+                kpiViewMode = 'geo';
                 renderDashboard();
             }
 
@@ -2328,6 +2485,7 @@
             if (kpiCard) {
                 selectedKpiCard = kpiCard.dataset.kpiCard;
                 kpiDrilldownUF = null;
+                kpiViewMode = 'geo';
                 renderDashboard();
                 return;
             }
@@ -2335,12 +2493,14 @@
             const kpiUfRow = e.target.closest('.kpi-uf-row');
             if (kpiUfRow) {
                 kpiDrilldownUF = kpiUfRow.dataset.uf;
+                kpiViewMode = 'geo';
                 renderDashboard();
                 return;
             }
 
             if (e.target.closest('#kpi-back-to-states')) {
                 kpiDrilldownUF = null;
+                kpiViewMode = 'geo';
                 renderDashboard();
                 return;
             }
@@ -2348,6 +2508,13 @@
             if (e.target.closest('#kpi-close-drilldown')) {
                 selectedKpiCard = null;
                 kpiDrilldownUF = null;
+                kpiViewMode = 'geo';
+                renderDashboard();
+                return;
+            }
+
+            if (e.target.closest('#kpi-toggle-history')) {
+                kpiViewMode = kpiViewMode === 'history' ? 'geo' : 'history';
                 renderDashboard();
                 return;
             }
