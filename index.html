@@ -135,6 +135,7 @@
         let selectedKpiCard = null; // 'revenue' | 'ticket' | 'items' | 'freight' | 'delivery'
         let kpiDrilldownUF = null;
         let kpiViewMode = 'geo'; // 'geo' (por estado/cidade) | 'history' (evolução mensal)
+        let kpiHistoryScope = null; // { level: 'uf'|'city', label: string } quando o histórico é de uma linha específica
         // let isDbAvailable = true;
         // let dbPromise;
 
@@ -338,6 +339,7 @@
             selectedKpiCard = newState.kpiCard || null;
             kpiDrilldownUF = newState.kpiUF || null;
             kpiViewMode = 'geo';
+            kpiHistoryScope = null;
             renderDashboard();
         }
 
@@ -613,12 +615,19 @@
         };
 
         const renderKpiHistoryToggleBtn = () => `
-            <button id="kpi-toggle-history" class="text-sm font-medium mb-4 inline-flex items-center gap-1 ${kpiViewMode === 'history' ? 'text-blue-400 hover:text-blue-300' : 'text-slate-400 hover:text-slate-200'}">
+            <button id="kpi-toggle-history" class="text-sm font-medium mb-4 inline-flex items-center gap-1 ${kpiViewMode === 'history' && !kpiHistoryScope ? 'text-blue-400 hover:text-blue-300' : 'text-slate-400 hover:text-slate-200'}">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm6 0V9a2 2 0 012-2h0a2 2 0 012 2v10m-6 0V5a2 2 0 012-2h0a2 2 0 012 2v14"/></svg>
-                ${kpiViewMode === 'history' ? 'Ver Detalhamento por Estado/Cidade' : 'Ver Histórico Mensal'}
+                ${kpiViewMode === 'history' && !kpiHistoryScope ? 'Ver Detalhamento por Estado/Cidade' : 'Ver Histórico Mensal (Geral)'}
             </button>`;
 
-        // View de drilldown dos cards de KPI: nível 1 = por Estado, nível 2 = por Cidade, com opção de histórico mensal.
+        // Pequeno ícone de "histórico" usado ao lado de cada estado/cidade na lista
+        const kpiHistoryIconBtn = (extraClass, dataAttr, label) => `
+            <button ${dataAttr} class="${extraClass} flex-shrink-0 p-1.5 rounded-md text-slate-400 hover:text-blue-400 hover:bg-slate-700 transition-colors" title="Ver histórico mensal de ${label}">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm6 0V9a2 2 0 012-2h0a2 2 0 012 2v10m-6 0V5a2 2 0 012-2h0a2 2 0 012 2v14"/></svg>
+            </button>`;
+
+        // View de drilldown dos cards de KPI: nível 1 = por Estado, nível 2 = por Cidade, com opção de histórico mensal
+        // (geral, via botão no topo, ou específico de um estado/cidade, via ícone ao lado da linha).
         // Usa computeKpiAggregates + groupRowsByKey (agregação O(n) numa única passagem) em vez de calculateMetrics,
         // que reprocessaria o dataset inteiro (incluindo o histórico geral) a cada estado/cidade.
         const renderKpiDrilldownView = (cardKey, uf) => {
@@ -633,6 +642,27 @@
                     <svg class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     ${label}
                 </p>`;
+
+            // --- Histórico de um estado ou cidade específica (acionado pelo ícone ao lado da linha) ---
+            if (kpiViewMode === 'history' && kpiHistoryScope) {
+                const isCityScope = kpiHistoryScope.level === 'city';
+                const historyData = isCityScope
+                    ? scopedData.filter(row => getRowValue(row, 'city') === kpiHistoryScope.label)
+                    : baseData.filter(row => getRowValue(row, 'uf') === kpiHistoryScope.label);
+
+                const backBtn = `<button id="kpi-back-from-history" class="text-sm text-blue-400 hover:text-blue-300 font-medium mb-4 inline-flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Voltar para ${isCityScope ? 'Cidades' : 'Estados'}
+                </button>`;
+
+                return `
+                <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    ${backBtn}
+                    <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} — Histórico Mensal</h3>
+                    <p class="text-sm text-slate-400 mb-4">${isCityScope ? 'Cidade' : 'Estado'}: <span class="text-slate-200 font-medium">${kpiHistoryScope.label}${isCityScope ? ` (${uf})` : ''}</span></p>
+                    ${renderKpiHistoryPanel(config, historyData)}
+                </div>`;
+            }
 
             // --- Nível 2: cidades dentro do estado selecionado ---
             if (uf) {
@@ -671,16 +701,19 @@
                 <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
                     <div class="flex flex-wrap items-center justify-between gap-2">${backBtn}${renderKpiHistoryToggleBtn()}</div>
                     <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} por Cidade</h3>
-                    <p class="text-sm text-slate-400 mb-4">Estado: <span class="text-slate-200 font-medium">${uf}</span></p>
+                    <p class="text-sm text-slate-400 mb-4">Estado: <span class="text-slate-200 font-medium">${uf}</span> · clique no ícone para ver o histórico mensal da cidade.</p>
                     <div class="space-y-4">
                         ${cityRows.map(item => `
-                            <div class="flex items-center group">
-                                <p class="w-2/5 text-sm text-slate-300 truncate pr-2">${item.label} <span class="text-xs text-slate-500">(${item.volumeLabel})</span></p>
-                                <div class="w-3/5 bg-slate-700 rounded-full h-6">
-                                    <div class="${config.barColor} h-6 rounded-full text-white text-xs flex items-center justify-end pr-2" style="width: ${Math.max((item.value / maxValue) * 100, 4)}%;">
-                                        ${config.formatValue(item.value)}
+                            <div class="flex items-center gap-2">
+                                <div class="flex-1 flex items-center min-w-0">
+                                    <p class="w-2/5 text-sm text-slate-300 truncate pr-2">${item.label} <span class="text-xs text-slate-500">(${item.volumeLabel})</span></p>
+                                    <div class="w-3/5 bg-slate-700 rounded-full h-6">
+                                        <div class="${config.barColor} h-6 rounded-full text-white text-xs flex items-center justify-end pr-2" style="width: ${Math.max((item.value / maxValue) * 100, 4)}%;">
+                                            ${config.formatValue(item.value)}
+                                        </div>
                                     </div>
                                 </div>
+                                ${kpiHistoryIconBtn('kpi-city-history-btn', `data-city="${item.label}"`, item.label)}
                             </div>
                         `).join('')}
                     </div>
@@ -722,16 +755,19 @@
             <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
                 <div class="flex flex-wrap items-center justify-between gap-2">${closeBtn}${renderKpiHistoryToggleBtn()}</div>
                 <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} por Estado</h3>
-                <p class="text-sm text-slate-400 mb-4">Clique num estado para detalhar por cidade.</p>
+                <p class="text-sm text-slate-400 mb-4">Clique num estado para detalhar por cidade, ou no ícone para ver o histórico mensal do estado.</p>
                 <div class="space-y-4">
                     ${ufRows.map(item => `
-                        <div data-uf="${item.label}" class="kpi-uf-row flex items-center group cursor-pointer">
-                            <p class="w-2/5 text-sm text-slate-300 truncate pr-2 group-hover:text-blue-400">${item.label} <span class="text-xs text-slate-500">(${item.volumeLabel})</span></p>
-                            <div class="w-3/5 bg-slate-700 rounded-full h-6">
-                                <div class="${config.barColor} h-6 rounded-full text-white text-xs flex items-center justify-end pr-2 group-hover:opacity-80 transition-opacity" style="width: ${Math.max((item.value / maxValue) * 100, 4)}%;">
-                                    ${config.formatValue(item.value)}
+                        <div class="flex items-center gap-2">
+                            <div data-uf="${item.label}" class="kpi-uf-row flex-1 flex items-center min-w-0 group cursor-pointer">
+                                <p class="w-2/5 text-sm text-slate-300 truncate pr-2 group-hover:text-blue-400">${item.label} <span class="text-xs text-slate-500">(${item.volumeLabel})</span></p>
+                                <div class="w-3/5 bg-slate-700 rounded-full h-6">
+                                    <div class="${config.barColor} h-6 rounded-full text-white text-xs flex items-center justify-end pr-2 group-hover:opacity-80 transition-opacity" style="width: ${Math.max((item.value / maxValue) * 100, 4)}%;">
+                                        ${config.formatValue(item.value)}
+                                    </div>
                                 </div>
                             </div>
+                            ${kpiHistoryIconBtn('kpi-uf-history-btn', `data-uf="${item.label}"`, item.label)}
                         </div>
                     `).join('')}
                 </div>
@@ -2478,6 +2514,7 @@
                 selectedKpiCard = null;
                 kpiDrilldownUF = null;
                 kpiViewMode = 'geo';
+                kpiHistoryScope = null;
                 renderDashboard();
             }
 
@@ -2485,6 +2522,30 @@
             if (kpiCard) {
                 selectedKpiCard = kpiCard.dataset.kpiCard;
                 kpiDrilldownUF = null;
+                kpiViewMode = 'geo';
+                kpiHistoryScope = null;
+                renderDashboard();
+                return;
+            }
+
+            const kpiUfHistoryBtn = e.target.closest('.kpi-uf-history-btn');
+            if (kpiUfHistoryBtn) {
+                kpiHistoryScope = { level: 'uf', label: kpiUfHistoryBtn.dataset.uf };
+                kpiViewMode = 'history';
+                renderDashboard();
+                return;
+            }
+
+            const kpiCityHistoryBtn = e.target.closest('.kpi-city-history-btn');
+            if (kpiCityHistoryBtn) {
+                kpiHistoryScope = { level: 'city', label: kpiCityHistoryBtn.dataset.city };
+                kpiViewMode = 'history';
+                renderDashboard();
+                return;
+            }
+
+            if (e.target.closest('#kpi-back-from-history')) {
+                kpiHistoryScope = null;
                 kpiViewMode = 'geo';
                 renderDashboard();
                 return;
@@ -2494,6 +2555,7 @@
             if (kpiUfRow) {
                 kpiDrilldownUF = kpiUfRow.dataset.uf;
                 kpiViewMode = 'geo';
+                kpiHistoryScope = null;
                 renderDashboard();
                 return;
             }
@@ -2501,6 +2563,7 @@
             if (e.target.closest('#kpi-back-to-states')) {
                 kpiDrilldownUF = null;
                 kpiViewMode = 'geo';
+                kpiHistoryScope = null;
                 renderDashboard();
                 return;
             }
@@ -2509,11 +2572,13 @@
                 selectedKpiCard = null;
                 kpiDrilldownUF = null;
                 kpiViewMode = 'geo';
+                kpiHistoryScope = null;
                 renderDashboard();
                 return;
             }
 
             if (e.target.closest('#kpi-toggle-history')) {
+                kpiHistoryScope = null;
                 kpiViewMode = kpiViewMode === 'history' ? 'geo' : 'history';
                 renderDashboard();
                 return;
