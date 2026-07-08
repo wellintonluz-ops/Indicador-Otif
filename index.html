@@ -132,6 +132,8 @@
         let selectedDelayUF = null;
         let isPendingDelayedDrilldownActive = false;
         let isMapDrilldownActive = false;
+        let selectedKpiCard = null; // 'revenue' | 'ticket' | 'items' | 'freight' | 'delivery'
+        let kpiDrilldownUF = null;
         // let isDbAvailable = true;
         // let dbPromise;
 
@@ -146,6 +148,7 @@
             carrier: ['TRANSPORTADORA', 'transportadora', 'Transportadora'],
             region: ['Região', 'região', 'REGIÃO'],
             uf: ['UF', 'uf'],
+            city: ['Cidade', 'cidade', 'CIDADE', 'Cidade Destino', 'cidade destino', 'CIDADE DESTINO', 'Município', 'município', 'MUNICÍPIO', 'Municipio', 'municipio', 'MUNICIPIO'],
             delayReason: ['Motivos', 'motivos', 'MOTIVOS', 'Motivo Atraso'],
             discrepancyReason: ['Divergência', 'divergência', 'DIVERGÊNCIA', 'Motivo Divergência'],
             delayDays: ['DIAS ATRASOS ÚTEIS', 'dias atrasos úteis', 'Dias Atrasos Úteis', 'Dias de Atraso (Úteis)'],
@@ -331,6 +334,8 @@
             selectedDelayRange = newState.delayRange;
             selectedDelayRegion = newState.delayRegion;
             selectedDelayUF = newState.delayUF;
+            selectedKpiCard = newState.kpiCard || null;
+            kpiDrilldownUF = newState.kpiUF || null;
             renderDashboard();
         }
 
@@ -412,6 +417,8 @@
                  viewHtml = renderDelayByUFView(selectedDelayRange, selectedDelayRegion);
             } else if (selectedDelayRange) {
                  viewHtml = renderDelayByRegionView(selectedDelayRange);
+            } else if (selectedKpiCard) {
+                 viewHtml = renderKpiDrilldownView(selectedKpiCard, kpiDrilldownUF);
             } else {
                  viewHtml = renderMainDashboardView();
             }
@@ -426,7 +433,7 @@
             `;
 
             // Draw charts after HTML is rendered
-            if (!isMapDrilldownActive && !isPendingDelayedDrilldownActive && !selectedState && !selectedRegion && !selectedCarrier && !selectedReason && !selectedDelayRange) {
+            if (!isMapDrilldownActive && !isPendingDelayedDrilldownActive && !selectedState && !selectedRegion && !selectedCarrier && !selectedReason && !selectedDelayRange && !selectedKpiCard) {
                 // Use a timeout to ensure the DOM is ready for the chart
                 setTimeout(() => {
                     const metrics = calculateMetrics();
@@ -435,6 +442,144 @@
                     }
                 }, 0);
             }
+        };
+
+        // Configuração central dos 5 cards de KPI, usada tanto na faixa de topo quanto no drilldown
+        const KPI_CARD_CONFIG = {
+            revenue: {
+                title: 'Faturamento Total',
+                barColor: 'bg-green-500',
+                getValue: (m) => m.totalRevenue,
+                formatValue: (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                volumeLabel: (m) => `${m.totalDeliveries.toLocaleString('pt-BR')} NFs`
+            },
+            ticket: {
+                title: 'Ticket Médio P/ Pedido',
+                barColor: 'bg-blue-500',
+                getValue: (m) => m.avgTicket,
+                formatValue: (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                volumeLabel: (m) => `${m.totalDeliveries.toLocaleString('pt-BR')} NFs`
+            },
+            items: {
+                title: 'Itens Vendidos',
+                barColor: 'bg-blue-500',
+                getValue: (m) => m.totalItems,
+                formatValue: (v) => v.toLocaleString('pt-BR'),
+                volumeLabel: (m) => `${m.avgItemsPerNF.toFixed(1)} por pedido`
+            },
+            freight: {
+                title: 'Frete Médio P/ Volume',
+                barColor: 'bg-orange-500',
+                getValue: (m) => m.avgFreight,
+                formatValue: (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                volumeLabel: (m) => `${m.totalItems.toLocaleString('pt-BR')} itens`
+            },
+            delivery: {
+                title: 'Tempo de Entrega',
+                barColor: 'bg-purple-500',
+                getValue: (m) => m.avgDeliveryDays,
+                formatValue: (v) => `${v.toFixed(1)} dias`,
+                volumeLabel: (m) => `${m.deliveryCount.toLocaleString('pt-BR')} pedidos`
+            }
+        };
+
+        // Lista de UFs/cidades por card de KPI, reaproveitando calculateMetrics() para cada subconjunto
+        const renderKpiDrilldownView = (cardKey, uf) => {
+            const config = KPI_CARD_CONFIG[cardKey];
+            if (!config) return renderMainDashboardView();
+
+            const baseData = getFilteredData();
+
+            const missingColumnHtml = (label) => `
+                <p class="text-sm text-yellow-400 flex items-center gap-1">
+                    <svg class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    ${label}
+                </p>`;
+
+            // --- Nível 2: cidades dentro do estado selecionado ---
+            if (uf) {
+                const ufData = baseData.filter(row => getRowValue(row, 'uf') === uf);
+                const backBtn = `<button id="kpi-back-to-states" class="text-sm text-blue-400 hover:text-blue-300 font-medium mb-4 inline-flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                    Voltar para Estados
+                </button>`;
+
+                const hasCity = ufData.some(row => getRowValue(row, 'city') !== undefined);
+                if (!hasCity || ufData.length === 0) {
+                    return `
+                    <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                        ${backBtn}
+                        <h3 class="text-lg font-semibold mb-2 text-slate-200">${config.title} — ${uf}</h3>
+                        ${missingColumnHtml('Coluna de cidade não encontrada nos dados importados.')}
+                    </div>`;
+                }
+
+                const cities = [...new Set(ufData.map(row => getRowValue(row, 'city')).filter(Boolean))];
+                const cityRows = cities.map(city => {
+                    const m = calculateMetrics(ufData.filter(row => getRowValue(row, 'city') === city));
+                    return { label: city, value: config.getValue(m), volumeLabel: config.volumeLabel(m) };
+                }).sort((a, b) => b.value - a.value);
+                const maxValue = Math.max(...cityRows.map(r => r.value), 0.0001);
+
+                return `
+                <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    ${backBtn}
+                    <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} por Cidade</h3>
+                    <p class="text-sm text-slate-400 mb-4">Estado: <span class="text-slate-200 font-medium">${uf}</span></p>
+                    <div class="space-y-4">
+                        ${cityRows.map(item => `
+                            <div class="flex items-center group">
+                                <p class="w-2/5 text-sm text-slate-300 truncate pr-2">${item.label} <span class="text-xs text-slate-500">(${item.volumeLabel})</span></p>
+                                <div class="w-3/5 bg-slate-700 rounded-full h-6">
+                                    <div class="${config.barColor} h-6 rounded-full text-white text-xs flex items-center justify-end pr-2" style="width: ${Math.max((item.value / maxValue) * 100, 4)}%;">
+                                        ${config.formatValue(item.value)}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>`;
+            }
+
+            // --- Nível 1: estados (UF) ---
+            const closeBtn = `<button id="kpi-close-drilldown" class="text-sm text-slate-400 hover:text-slate-200 font-medium mb-4 inline-flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                Fechar detalhamento
+            </button>`;
+
+            const ufs = [...new Set(baseData.map(row => getRowValue(row, 'uf')).filter(Boolean))];
+            if (ufs.length === 0) {
+                return `<div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                    ${closeBtn}
+                    <h3 class="text-lg font-semibold mb-2 text-slate-200">${config.title} por Estado</h3>
+                    ${missingColumnHtml('Coluna de UF não encontrada nos dados importados.')}
+                </div>`;
+            }
+
+            const ufRows = ufs.map(ufLabel => {
+                const m = calculateMetrics(baseData.filter(row => getRowValue(row, 'uf') === ufLabel));
+                return { label: ufLabel, value: config.getValue(m), volumeLabel: config.volumeLabel(m) };
+            }).sort((a, b) => b.value - a.value);
+            const maxValue = Math.max(...ufRows.map(r => r.value), 0.0001);
+
+            return `
+            <div class="bg-slate-800 p-6 rounded-lg border border-slate-700">
+                ${closeBtn}
+                <h3 class="text-lg font-semibold mb-1 text-slate-200">${config.title} por Estado</h3>
+                <p class="text-sm text-slate-400 mb-4">Clique num estado para detalhar por cidade.</p>
+                <div class="space-y-4">
+                    ${ufRows.map(item => `
+                        <div data-uf="${item.label}" class="kpi-uf-row flex items-center group cursor-pointer">
+                            <p class="w-2/5 text-sm text-slate-300 truncate pr-2 group-hover:text-blue-400">${item.label} <span class="text-xs text-slate-500">(${item.volumeLabel})</span></p>
+                            <div class="w-3/5 bg-slate-700 rounded-full h-6">
+                                <div class="${config.barColor} h-6 rounded-full text-white text-xs flex items-center justify-end pr-2 group-hover:opacity-80 transition-opacity" style="width: ${Math.max((item.value / maxValue) * 100, 4)}%;">
+                                    ${config.formatValue(item.value)}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
         };
 
         const renderKPIStrip = (metrics) => {
@@ -465,7 +610,7 @@
 
             return `
             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                <div class="bg-slate-800 rounded-lg border ${!st.nfValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-slate-500 transition-colors">
+                <div data-kpi-card="revenue" class="kpi-card bg-slate-800 rounded-lg border ${!st.nfValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-blue-500 transition-colors cursor-pointer">
                     <div class="flex justify-between items-start">
                         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Faturamento Total</p>
                         <div class="p-2 rounded-full bg-green-500/20 text-green-400 flex-shrink-0">
@@ -476,7 +621,7 @@
                     <p class="mt-1 text-xs text-green-400">NF Valor Total da operação</p>
                     ${missingHtml('nfValue', 'Valor NF', [])}
                 </div>
-                <div class="bg-slate-800 rounded-lg border ${!st.nfValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-slate-500 transition-colors">
+                <div data-kpi-card="ticket" class="kpi-card bg-slate-800 rounded-lg border ${!st.nfValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-blue-500 transition-colors cursor-pointer">
                     <div class="flex justify-between items-start">
                         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Ticket Médio P/ Pedido</p>
                         <div class="p-2 rounded-full bg-blue-500/20 text-blue-400 flex-shrink-0">
@@ -487,7 +632,7 @@
                     <p class="mt-1 text-xs text-slate-400">Média de valor por nota fiscal</p>
                     ${missingHtml('nfValue', 'Valor NF', [])}
                 </div>
-                <div class="bg-slate-800 rounded-lg border ${!st.itemsQty ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-slate-500 transition-colors">
+                <div data-kpi-card="items" class="kpi-card bg-slate-800 rounded-lg border ${!st.itemsQty ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-blue-500 transition-colors cursor-pointer">
                     <div class="flex justify-between items-start">
                         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Itens Vendidos</p>
                         <div class="p-2 rounded-full bg-blue-500/20 text-blue-400 flex-shrink-0">
@@ -498,7 +643,7 @@
                     <p class="mt-1 text-xs text-slate-400">${metrics.avgItemsPerNF.toFixed(1)} por pedido</p>
                     ${missingHtml('itemsQty', 'Qtd Itens', [])}
                 </div>
-                <div class="bg-slate-800 rounded-lg border ${!st.freightValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-slate-500 transition-colors">
+                <div data-kpi-card="freight" class="kpi-card bg-slate-800 rounded-lg border ${!st.freightValue ? 'border-yellow-700' : 'border-slate-700'} p-4 hover:border-blue-500 transition-colors cursor-pointer">
                     <div class="flex justify-between items-start">
                         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Frete Médio P/ Volume</p>
                         <div class="p-2 rounded-full bg-orange-500/20 text-orange-400 flex-shrink-0">
@@ -509,7 +654,7 @@
                     <p class="mt-1 text-xs"><span class="text-orange-400">Representa ${metrics.freightAsPercentOfRevenue.toFixed(1)}%</span><span class="text-slate-400"> do faturamento</span></p>
                     ${missingHtml('freightValue', 'Valor Frete', [])}
                 </div>
-                <div class="bg-slate-800 rounded-lg border border-slate-700 p-4 hover:border-slate-500 transition-colors">
+                <div data-kpi-card="delivery" class="kpi-card bg-slate-800 rounded-lg border border-slate-700 p-4 hover:border-blue-500 transition-colors cursor-pointer">
                     <div class="flex justify-between items-start">
                         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Tempo de Entrega</p>
                         <div class="p-2 rounded-full bg-purple-500/20 text-purple-400 flex-shrink-0">
@@ -597,7 +742,7 @@
         }
         
         const renderBreadcrumbs = () => {
-            const initialState = { region: null, state: null, carrier: null, reason: null, delayRange: null, delayRegion: null, delayUF: null };
+            const initialState = { region: null, state: null, carrier: null, reason: null, delayRange: null, delayRegion: null, delayUF: null, kpiCard: null, kpiUF: null };
             let crumbs = [{ label: 'Dashboard', state: initialState }];
             
             let terminalCrumbLabel = '';
@@ -624,6 +769,11 @@
                 terminalCrumbLabel = selectedState;
             } else if (selectedRegion) {
                 terminalCrumbLabel = selectedRegion;
+            } else if (kpiDrilldownUF) {
+                crumbs.push({ label: KPI_CARD_CONFIG[selectedKpiCard].title, state: { ...initialState, kpiCard: selectedKpiCard } });
+                terminalCrumbLabel = kpiDrilldownUF;
+            } else if (selectedKpiCard) {
+                terminalCrumbLabel = KPI_CARD_CONFIG[selectedKpiCard].title;
             }
 
             if(terminalCrumbLabel) crumbs.push({label: terminalCrumbLabel, state: {}});
@@ -2169,7 +2319,37 @@
                 selectedDelayRange = null;
                 selectedDelayRegion = null;
                 selectedDelayUF = null;
+                selectedKpiCard = null;
+                kpiDrilldownUF = null;
                 renderDashboard();
+            }
+
+            const kpiCard = e.target.closest('.kpi-card');
+            if (kpiCard) {
+                selectedKpiCard = kpiCard.dataset.kpiCard;
+                kpiDrilldownUF = null;
+                renderDashboard();
+                return;
+            }
+
+            const kpiUfRow = e.target.closest('.kpi-uf-row');
+            if (kpiUfRow) {
+                kpiDrilldownUF = kpiUfRow.dataset.uf;
+                renderDashboard();
+                return;
+            }
+
+            if (e.target.closest('#kpi-back-to-states')) {
+                kpiDrilldownUF = null;
+                renderDashboard();
+                return;
+            }
+
+            if (e.target.closest('#kpi-close-drilldown')) {
+                selectedKpiCard = null;
+                kpiDrilldownUF = null;
+                renderDashboard();
+                return;
             }
 
             const clickableBar = e.target.closest('.clickable-bar');
