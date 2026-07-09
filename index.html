@@ -541,7 +541,7 @@
                     if (getRowValue(row, 'delayReason') !== 'Desistência de compra') {
                         const dDate = getRowValue(row, 'deliveryDate');
                         if (dDate && String(dDate).trim() !== '') {
-                            const days = kpiCountBusinessDays(parseDate(getRowValue(row, 'pedidoDate')), parseDate(dDate));
+                            const days = kpiCountBusinessDays(parseDate(getRowValue(row, 'expeditionDate')), parseDate(dDate));
                             if (days !== null && days > 0) {
                                 deliverySum += days;
                                 deliveryCount++;
@@ -1945,7 +1945,7 @@
                 return count;
             };
 
-            // Tempo de entrega: col L (Data Pedido) → col P (Data de entrega), dias úteis
+            // Tempo de entrega: col K (Data expedição) → col P (Data de entrega), dias úteis
             // Exclui: NFs duplicadas (sourceData já deduplicado), "Desistência de compra" (processedData),
             //         linhas sem data de entrega, resultados vazios ou negativos
             const deliveryTimes = processedData
@@ -1954,9 +1954,9 @@
                     return d && String(d).trim() !== '';
                 })
                 .map(row => {
-                    const pedido = parseDate(getRowValue(row, 'pedidoDate'));
+                    const expedicao = parseDate(getRowValue(row, 'expeditionDate'));
                     const entrega = parseDate(getRowValue(row, 'deliveryDate'));
-                    return countBusinessDays(pedido, entrega);
+                    return countBusinessDays(expedicao, entrega);
                 })
                 .filter(d => d !== null && d > 0);
             const deliveryCount = deliveryTimes.length;
